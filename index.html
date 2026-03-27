@@ -1729,50 +1729,7 @@
     <!-- App Container -->
     <div class="app-container" id="appContainer">
       <div class="widgets-row">
-        <div class="widget-card widget-wide" style="position: relative;">
-          
-          <div style="position: absolute; right: 16px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; align-items: center; justify-content: center;">
-            <svg
-              viewBox="0 0 200 100"
-              fill="white"
-              xmlns="http://www.w3.org/2000/svg"
-              style="width: 50px; height: auto; opacity: 0.9; margin-bottom: 6px;"
-            >
-              <path
-                d="M100 20 C60 20 25 50 10 65 Q5 70 10 75 C30 95 65 95 100 80 C135 95 170 95 190 75 Q195 70 190 65 C175 50 140 20 100 20Z"
-                fill="none"
-                stroke="white"
-                stroke-width="5"
-              />
-              <path
-                d="M100 30 C70 30 40 50 25 65 Q55 85 100 72 Q145 85 175 65 C160 50 130 30 100 30Z"
-                fill="none"
-                stroke="white"
-                stroke-width="3"
-                opacity="0.5"
-              />
-              <circle cx="100" cy="52" r="12" fill="white" />
-            </svg>
-            <div style="font-size: 10px; color: var(--muted); letter-spacing: 2px; text-transform: uppercase; font-weight: 400;">Vision AID</div>
-          </div>
 
-          <div class="widget-top">
-            <div class="widget-icon">
-              <svg viewBox="0 0 24 24">
-                <circle cx="12" cy="12" r="10" />
-                <polyline points="12 6 12 12 16 14" />
-              </svg>
-            </div>
-            <!-- Badge removed to clear space for the logo on the right -->
-          </div>
-          <div class="widget-bottom">
-            <div class="widget-row-inline">
-              <span class="widget-time-display" id="widgetTime">--:--</span>
-              <span class="widget-time-seconds" id="widgetSec">00</span>
-            </div>
-            <div class="widget-time-date" id="widgetDate">Mon, 24 Feb 2026</div>
-          </div>
-        </div>
 
         <div class="widget-card">
           <div class="widget-top">
@@ -2811,35 +2768,46 @@
       }
 
       let scanActive = false;
-      function toggleScan() {
-        scanActive = !scanActive;
+      async function toggleScan() {
         const area = document.getElementById("scanArea");
         const btn = document.getElementById("scanBtn");
         const status = document.getElementById("scanStatus");
         const text = document.getElementById("extractedText");
+        
         if (scanActive) {
-          area.classList.remove("scan-paused");
-          area.classList.add("scan-active");
-          btn.textContent = "Stop Scan";
-          status.textContent = "Scanning...";
-          const sampleTexts = [
-            "Welcome to Vision AID\nPowered by hybrid AI",
-            "EXIT →\nFloor 2 — Conference Room B",
-            "CAUTION\nWet Floor Ahead",
-            "Menu — Daily Special\nCoffee $4.50 | Tea $3.00",
-            "Bus Route 42\nNext departure: 3 min",
-          ];
-          setTimeout(() => {
-            if (scanActive && text) {
-              text.textContent =
-                sampleTexts[Math.floor(Math.random() * sampleTexts.length)];
-            }
-          }, 2500);
-        } else {
+          // If already scanning, this effectively "resets" or stops the current attempt
+          scanActive = false;
           area.classList.add("scan-paused");
           area.classList.remove("scan-active");
           btn.textContent = "Start Scan";
-          status.textContent = "Tap Scan to Start";
+          status.textContent = "Scan Stopped";
+          return;
+        }
+
+        scanActive = true;
+        area.classList.remove("scan-paused");
+        area.classList.add("scan-active");
+        btn.textContent = "Stop Scan";
+        status.textContent = "Scanning Surroundings...";
+        if (text) text.textContent = "Analysing image...";
+
+        try {
+          // Call the existing VisionController which handles capture + API call
+          // We pass a prompt specific to the "Recognition" context
+          const result = await VisionController.analyseScene("Identify text, currency, and objects in detail for a visually impaired user.");
+          
+          if (scanActive && text) {
+            text.textContent = result || "No analysis available.";
+          }
+        } catch (err) {
+          console.error("Scan failed:", err);
+          if (text) text.textContent = "Scan failed. Please try again.";
+        } finally {
+          scanActive = false;
+          area.classList.add("scan-paused");
+          area.classList.remove("scan-active");
+          btn.textContent = "Start Scan";
+          if (status) status.textContent = "Scan Complete";
         }
       }
 
