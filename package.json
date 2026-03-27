@@ -1,0 +1,23 @@
+{
+  "name": "visionaid-webapp",
+  "version": "1.0.0",
+  "description": "Vision AID - Assistive platform for visually impaired users",
+  "main": "api/server.js",
+  "scripts": {
+    "start": "node api/server.js",
+    "dev": "node api/server.js"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0",
+    "@supabase/supabase-js": "^2.99.3",
+    "canvas": "^3.2.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "form-data": "^4.0.5",
+    "multer": "^2.1.1",
+    "node-fetch": "^2.7.0",
+    "openai": "^6.29.0",
+    "wavefile": "^11.0.0"
+  }
+}

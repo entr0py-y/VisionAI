@@ -1,0 +1,15 @@
+
+> visionaid-webapp@1.0.0 dev
+> node api/server.js
+
+Vision AID server running on http://localhost:3000
+Endpoints: /api/ai/chat, /api/ai/classify, /api/vision, /api/navigation/geocode
+Pi Endpoints: /api/pi/audio-input, /api/pi/image-input, /api/pi/audio-output
+[Vision] Sending image to vision model...
+[Vision] Model response received: The image is completely black, with no discernible objects or features. It appea
+[Vision] Sending image to vision model...
+[Vision] Model response received: The image is completely black, with no visible objects or features. There is no 
+[Vision] Sending image to vision model...
+[Vision] Sending image to vision model...
+[Vision] Model response received: The image depicts a young man with dark, curly hair and brown eyes, wearing a li
+[Vision] Model response received: The image features a young man with medium-length, wavy brown hair that falls ju

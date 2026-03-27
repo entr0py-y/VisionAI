@@ -1,0 +1,20 @@
+Vision AID server running on http://0.0.0.0:3000
+Endpoints: /api/ai/chat, /api/ai/classify, /api/vision, /api/navigation/geocode
+Pi Endpoints: /api/pi/audio-input, /api/pi/image-input, /api/pi/audio-output
+[HARDWARE] 🎙️ Audio/Text request received from ESP/Pi! IP: 10.68.150.186
+[DEBUG] Received raw PCM audio: 96000 bytes
+[DEBUG] Converted to WAV, final size: 96044 bytes
+[DEBUG] Attempting STT via Groq Whisper...
+[DEBUG] Transcript:  What's in front of me?
+[DEBUG] Running AI Reasoning via Llama 3.2 11B...
+[DEBUG] Llama Response: Unfortunately, I can't see what's in front of you, but you can describe it to me if you'd like to share.
+[DEBUG] Forwarding ESP32 result directly to Webpage UI!
+[Vision] Request received. image length: 154739, source: undefined
+[Vision] Sending image to vision model...
+[Vision] Model response received: In the foreground, a man with dark hair and a beard, wearing a white collared sh
+Supabase Insert Error: {
+  code: 'PGRST204',
+  details: null,
+  hint: null,
+  message: "Could not find the 'username' column of 'messages' in the schema cache"
+}

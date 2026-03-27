@@ -1,0 +1,18 @@
+{
+  "version": 2,
+  "builds": [
+    { "src": "index.html", "use": "@vercel/static" },
+    { "src": "js/**/*", "use": "@vercel/static" },
+    { "src": "api/**/*.js", "use": "@vercel/node" }
+  ],
+  "routes": [
+    { "src": "/api/vision", "dest": "/api/server.js" },
+    { "src": "/api/navigation/(.*)", "dest": "/api/server.js" },
+    { "src": "/api/pi/(.*)", "dest": "/api/server.js" },
+    { "src": "/api/ai/chat", "dest": "/api/ai/chat.js" },
+    { "src": "/api/ai/classify", "dest": "/api/ai/classify.js" },
+    { "src": "/api/(.*)", "dest": "/api/server.js" },
+    { "src": "/js/(.*)", "dest": "/js/$1" },
+    { "src": "/(.*)", "dest": "/index.html" }
+  ]
+}

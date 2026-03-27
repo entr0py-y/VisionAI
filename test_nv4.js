@@ -1,0 +1,31 @@
+require('dotenv').config();
+const OpenAI = require('openai').default;
+
+const visionClient = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+  baseURL: 'https://integrate.api.nvidia.com/v1',
+});
+
+async function run() {
+  try {
+    const b64 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR4nGNiAAAABgADNjd8qAAAAABJRU5ErkJggg==";
+    const resp = await visionClient.chat.completions.create({
+      model: 'meta/llama-3.2-11b-vision-instruct',
+      messages: [
+        { role: 'system', content: 'You are an AI' },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'What is this?' },
+            { type: 'image_url', image_url: { url: b64 } }
+          ]
+        }
+      ],
+      max_tokens: 512
+    });
+    console.log(resp.choices[0].message.content);
+  } catch (e) {
+    console.error(e.message);
+  }
+}
+run();

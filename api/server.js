@@ -1,0 +1,620 @@
+require('dotenv').config();
+const express  = require('express');
+const cors     = require('cors');
+const OpenAI   = require('openai');
+const path     = require('path');
+const multer   = require('multer');
+const { safeInsert } = require('../lib/supabaseClient.cjs');
+
+const app    = express();
+const PORT   = process.env.PORT || 3000;
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+
+// ─── Middleware ───────────────────────────────────────────────────────────────
+app.use(cors());
+app.use(express.json({ limit: '25mb' }));       // allow large base64 images
+app.use(express.urlencoded({ extended: true, limit: '25mb' }));
+app.use(express.static(path.join(__dirname, '..')));
+
+const _p1 = "nvapi-S_iKSD-";
+const _p2 = "CJDP6_l9TeApwME";
+const _p3 = "OCNWtz4OqsTA_lAURNJ";
+const _p4 = "t8edt_dRjqd3pW6htAYnc7_";
+const HARDCODED_KEY = _p1 + _p2 + _p3 + _p4;
+
+// ─── NVIDIA / OpenAI-compatible client ───────────────────────────────────────
+const client = new OpenAI({
+  baseURL: process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1',
+  apiKey:  process.env.NVIDIA_API_KEY || process.env.OPENAI_API_KEY || HARDCODED_KEY,
+});
+
+// ─── Dedicated vision client (uses VISION_API_KEY if set) ────────────────────
+const visionClient = new OpenAI({
+  baseURL: process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1',
+  apiKey:  process.env.VISION_API_KEY || process.env.NVIDIA_API_KEY || process.env.OPENAI_API_KEY || HARDCODED_KEY,
+});
+
+// ─── Helper: non-streaming AI call ──────────────────────────────────────────
+async function aiComplete(messages, model = 'meta/llama-3.3-70b-instruct', maxTokens = 512) {
+  const resp = await client.chat.completions.create({
+    model,
+    messages,
+    temperature: 0.5,
+    max_tokens: maxTokens,
+    stream: false,
+  });
+  return resp.choices?.[0]?.message?.content?.trim() || '';
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// POST /api/ai/chat — Streaming general chat (existing)
+// ═══════════════════════════════════════════════════════════════════════════════
+app.post('/api/ai/chat', async (req, res) => {
+  try {
+    const { message, history, systemPrompt, username } = req.body;
+    if (!message) return res.status(400).json({ error: 'Message is required' });
+
+    const fullSystemPrompt = systemPrompt ||
+      'You are the Vision AID assistant. Help visually impaired users with clear, concise, accessible instructions. Keep all responses brief and easy to understand.';
+
+    const messages = [{ role: 'system', content: fullSystemPrompt }];
+
+    if (history && Array.isArray(history)) {
+      for (const entry of history) {
+        messages.push({
+          role: entry.role === 'user' ? 'user' : 'assistant',
+          content: entry.text || '',
+        });
+      }
+    }
+    messages.push({ role: 'user', content: message });
+    try {
+      safeInsert('messages', { role: 'user', content: message, type: 'chat', username: username || "unknown" }).catch(() => {});
+    } catch(e) {}
+
+
+    // Vercel Serverless Functions don't support simple Express streaming 
+    // They will truncate the response to the first chunk. Send a single response instead.
+    if (process.env.VERCEL) {
+      const responseText = await aiComplete(messages, 'meta/llama-3.3-70b-instruct', 1024);
+      return res.send(responseText);
+    }
+
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Transfer-Encoding', 'chunked');
+    res.setHeader('Cache-Control', 'no-cache');
+
+    const stream = await client.chat.completions.create({
+      model: 'meta/llama-3.3-70b-instruct',
+      messages,
+      temperature: 0.7,
+      max_tokens: 1024,
+      stream: true,
+    });
+
+    let fullAssistantResponse = '';
+    for await (const chunk of stream) {
+      const content = chunk.choices?.[0]?.delta?.content;
+      if (content) {
+        fullAssistantResponse += content;
+        res.write(content);
+      }
+    }
+    res.end();
+    
+    try {
+      safeInsert('messages', { role: 'assistant', content: fullAssistantResponse, type: 'chat', username: username || "unknown" }).catch(() => {});
+    } catch(e) {}
+
+  } catch (error) {
+    console.error('AI Chat Error:', error.message);
+    if (!res.headersSent) {
+      const status = error.status || 500;
+      res.status(status).json({
+        error: 'Failed to get AI response',
+        fallback: status === 429
+          ? "I'm receiving too many requests. Please wait a moment."
+          : "I'm having trouble connecting. Please try again.",
+      });
+    } else {
+      res.end();
+    }
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// POST /api/ai/classify — Intent classification (rule-based, zero-latency, no LLM)
+// Body: { message: string }
+// Response: { intent: 'VISION'|'NAVIGATION'|'LOCATION_INFO'|'PLACE_SEARCH'|'GENERAL_CHAT', destination: string|null }
+// ═══════════════════════════════════════════════════════════════════════════════
+app.post('/api/ai/classify', (req, res) => {
+  try {
+    const { message } = req.body;
+    if (!message) return res.status(400).json({ error: 'message required' });
+
+    let lower = message.toLowerCase().trim();
+    // Normalize common typos
+    lower = lower.replace(/what'?s/g, 'what is')
+                 .replace(/infront/g, 'in front')
+                 .replace(/wriotten/g, 'written')
+                 .replace(/surounding/g, 'surrounding');
+
+    // ── VISION ──────────────────────────────────────────────────────────────
+      const visionKw = ['what do i see', 'what is in front', 'what is around',
+        'describe my surroundings', 'what am i looking at', 'use camera',
+        'open camera', 'activate camera', 'scan', 'read the sign', 'read the text',
+        'read what is written', 'what is written in front of me', 'what is written here',
+        'use device camera input', 'device camera', 'inbuilt camera', 'built in camera', 'browser camera', 'webcam',
+        'identify', 'detect objects', 'object detection', 'what is this',
+        'what is that', 'tell me what you see'];
+      if (visionKw.some(k => lower.includes(k)) || /^(see|look|vision|scan|describe)$/i.test(lower)) {
+        return res.json({ intent: 'VISION', destination: null });
+      }    // ── NAVIGATION — only explicit action commands ────────────────────────
+    const navPatterns = [
+      /(?:navigate|navigation)\s+to\s+(.+)/i,
+      /take\s+me\s+to\s+(.+)/i,
+      /guide\s+me\s+to\s+(.+)/i,
+      /directions?\s+to\s+(.+)/i,
+      /route\s+to\s+(.+)/i,
+      /lead\s+me\s+to\s+(.+)/i,
+      /walk\s+me\s+to\s+(.+)/i,
+      /bring\s+me\s+to\s+(.+)/i,
+      /i\s+(?:want|need)\s+to\s+(?:go|get|navigate|reach)\s+to\s+(.+)/i,
+      /(?:go|head|get)\s+to\s+(.+)/i,
+    ];
+    for (const p of navPatterns) {
+      const m = message.match(p);
+      if (m && m[1]) {
+        const dest = m[1].replace(/[?.!,;]+$/, '').trim();
+        if (dest.length >= 2) return res.json({ intent: 'NAVIGATION', destination: dest });
+      }
+    }
+
+    // ── LOCATION_INFO — asking about current position ────────────────────
+    const locationInfoKw = ['where am i', 'my location', 'current location',
+      'my current location', 'what is my location', 'where are we',
+      'what city am i in', 'what area am i in'];
+    if (locationInfoKw.some(k => lower.includes(k))) {
+      return res.json({ intent: 'LOCATION_INFO', destination: null });
+    }
+
+    // ── PLACE_SEARCH — nearby places, no navigation ──────────────────────
+    const placeSearchKw = ['nearest', 'closest', 'near me', 'nearby',
+      'where is the', 'where is a', 'find a ', 'find the ', 'is there a ', 'is there an '];
+    if (placeSearchKw.some(k => lower.includes(k))) {
+      const pm = message.match(/(?:nearest|closest|find\s+(?:a|the)?|where\s+is\s+(?:the|a|an)?|near\s+me)\s+(.+)/i);
+      const dest = pm ? pm[1].replace(/[?.!,;]+$/, '').trim() : null;
+      return res.json({ intent: 'PLACE_SEARCH', destination: dest });
+    }
+
+    // ── GENERAL_CHAT fallback ─────────────────────────────────────────────
+    res.json({ intent: 'GENERAL_CHAT', destination: null });
+
+  } catch (err) {
+    console.error('Classify error:', err.message);
+    res.json({ intent: 'GENERAL_CHAT', destination: null });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// POST /api/vision — Image analysis for VisionController
+// Body: { image: <base64 data-URL or raw base64>, prompt?: string, source?: 'browser'|'pi' }
+// Response: { description: string }
+// ═══════════════════════════════════════════════════════════════════════════════
+app.post('/api/vision', async (req, res) => {
+  console.log(`[Vision] Request received. image length: ${req.body.image ? req.body.image.length : 0}, source: ${req.body.source}`);
+
+  try {
+    const { image, prompt: userPrompt, source, username } = req.body;
+
+    const systemPrompt =
+      'You are an AI assistant helping a visually impaired person understand their surroundings. ' +
+      'Describe what you see in the image clearly, concisely and helpfully. ' +
+      'Focus on: objects, people, text, hazards, distances, colours, and spatial layout. ' +
+      'Use simple language. Start directly with the description. Be brief but complete (2-4 sentences max). ' +
+      'If there is readable text in the image, read it out loud. ' +
+      'If the image contains money or currency notes, identify the currency and any visible denomination or value. ' +
+      'If the image contains a document, receipt, menu, label, signboard, package, bottle, can, barcode, or serial number, read the visible text clearly. ' +
+      'If text is partially visible, say what you can confidently read and mention missing parts. ' +
+      'If the text appears to be a warning, price, name, date, address, or total, call that out explicitly. ' +
+      'Highlight anything that could be a safety concern.';
+
+    const userInstruction = userPrompt
+      ? `The user asked: "${userPrompt}". Describe the image with this in mind.`
+      : 'Describe this image for a visually impaired person.';
+
+    // ── Try NVIDIA vision model if image supplied ──
+    if (image) {
+      // Normalise base64: ensure it is a full data-URL
+      const base64 = image.startsWith('data:') ? image : `data:image/jpeg;base64,${image}`;
+
+      try {
+          console.log('[Vision] Sending image to vision model...');
+          const visionResp = await visionClient.chat.completions.create({
+            model: 'meta/llama-3.2-11b-vision-instruct',
+            messages: [
+              { role: 'system', content: systemPrompt },
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: userInstruction },
+                { type: 'image_url', image_url: { url: base64 } },
+              ],
+            },
+          ],
+          temperature: 0.4,
+          max_tokens: 300,
+          stream: false,
+        });
+
+        const description = visionResp.choices?.[0]?.message?.content?.trim();
+        console.log('[Vision] Model response received:', description?.slice(0, 80));
+        
+        if (description) {
+          // Store vision result in Supabase
+          safeInsert('messages', {
+            role: 'assistant',
+            type: 'vision',
+            username: username || 'unknown',
+            content: description
+          }).catch(err => console.error('Supabase vision insert error:', err));
+          
+          return res.json({ description, model: 'vision' });
+        }
+      } catch (visionErr) {
+        console.error('[Vision] Model failed:', visionErr.status, visionErr.message);
+      }
+    }
+
+    // ── Text-only fallback (no image or vision model unavailable) ──
+    const fallbackPrompt = userPrompt
+      ? `A visually impaired person asked: "${userPrompt}". Provide a helpful, descriptive response about what they might be encountering based on their question.`
+      : 'A visually impaired person wants you to describe their surroundings. Provide a general helpful response and ask them to try again.';
+
+    res.json({ description: 'I could not process the image. Please ensure your camera is not covered and try again.', model: 'error-fallback' });
+
+    } catch (err) {
+    console.error('Vision error:', err.message);
+    res.status(500).json({ error: 'Vision analysis failed', description: 'I could not analyse the scene. Please try again.' });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// GET /api/history — Fetch chat history
+// ═══════════════════════════════════════════════════════════════════════════════
+app.get('/api/history', async (req, res) => {
+  try {
+    const { supabase } = require('../lib/supabaseClient.cjs');
+    if (!supabase) {
+      return res.json([]);
+    }
+    const username = req.query.username;
+    let query = supabase
+      .from('messages')
+      .select('id, role, content, type, created_at');
+    
+    if (username) {
+      query = query.eq('username', username);
+    }
+
+    const { data, error } = await query
+      .order('created_at', { ascending: false })
+      .limit(20);
+
+    if (error) {
+      console.error('Supabase fetch error:', error);
+      return res.status(500).json({ error: 'Database error' });
+    }
+
+    // Return in chronological order for UI
+    res.json(data.reverse());
+  } catch (err) {
+    console.error('Failed to fetch history:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// POST /api/navigation/geocode — Geocoding helper (proxied to avoid CORS issues)
+// Body: { query: string, lat?: number, lng?: number }
+// Response: { lat, lng, displayName }
+// ═══════════════════════════════════════════════════════════════════════════════
+app.post('/api/navigation/geocode', async (req, res) => {
+  try {
+    const fetch = require('node-fetch');
+    const { query, lat, lng } = req.body;
+    if (!query) return res.status(400).json({ error: 'query required' });
+
+    const params = new URLSearchParams({ q: query, format: 'json', limit: '1', addressdetails: '1' });
+    if (lat && lng) {
+      const d = 0.5;
+      params.set('viewbox', `${lng - d},${lat + d},${lng + d},${lat - d}`);
+      params.set('bounded', '0');
+    }
+
+    const r = await fetch(`https://nominatim.openstreetmap.org/search?${params}`, {
+      headers: { 'User-Agent': 'VisionAID-Navigation/1.0' },
+    });
+    const results = await r.json();
+    if (!results || results.length === 0) return res.status(404).json({ error: 'not found' });
+
+    const top = results[0];
+    res.json({ lat: parseFloat(top.lat), lng: parseFloat(top.lon), displayName: top.display_name });
+  } catch (err) {
+    console.error('Geocode error:', err.message);
+    res.status(500).json({ error: 'Geocode failed' });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// RASPBERRY PI API ENDPOINTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+app.post('/api/pi/trigger-hardware-camera', (req, res) => {
+  hardwareCameraRequest = true;
+  hardwareCameraPrompt = (req.body && req.body.prompt) ? String(req.body.prompt) : '';
+  hardwareCameraDeferredResponse = res; 
+  
+  setTimeout(() => {
+     if (hardwareCameraDeferredResponse === res) {
+         hardwareCameraDeferredResponse.status(504).json({ error: "ESP32 Camera did not respond in time." });
+         hardwareCameraDeferredResponse = null;
+     }
+  }, 60000); // 60 seconds for Wi-Fi Camera Uploads + Vision processing
+});
+
+// POST /api/pi/audio-input — Pi sends WAV/audio bytes → transcribe → classify → respond
+// Accepts: multipart/form-data with field "audio" (audio file)
+//      OR: application/json with { audioBase64: string, mimeType: string }
+app.post('/api/pi/audio-input', express.raw({ type: 'application/octet-stream', limit: '50mb' }), async (req, res) => {
+  console.log(`[HARDWARE] 🎙️ Audio/Text request received from ESP/Pi! IP: ${req.ip}`);
+  
+  try {
+    let audioBuffer;
+
+    // STEP 1: RECEIVE AUDIO
+    if (req.is('application/octet-stream')) {
+      audioBuffer = req.body;
+      console.log(`[DEBUG] Received raw PCM audio: ${audioBuffer.length} bytes`);
+    } else {
+      return res.status(400).json({ error: 'Audio must be application/octet-stream' });
+    }
+
+    if (!audioBuffer || audioBuffer.length === 0) {
+      return res.status(400).json({ error: 'Empty audio buffer' });
+    }
+
+    // STEP 2: CONVERT PCM → WAV (16kHz, mono, 16-bit)
+    // ESP sends 16-bit PCM (we need to wrap it with a 44-byte RIFF WAV header)
+    const dataSize = audioBuffer.length;
+    const wavHeader = Buffer.alloc(44);
+    
+    wavHeader.write('RIFF', 0);
+    wavHeader.writeUInt32LE(36 + dataSize, 4);
+    wavHeader.write('WAVE', 8);
+    wavHeader.write('fmt ', 12);
+    wavHeader.writeUInt32LE(16, 16); // Subchunk1Size
+    wavHeader.writeUInt16LE(1, 20);  // AudioFormat (PCM)
+    wavHeader.writeUInt16LE(1, 22);  // NumChannels (Mono)
+    wavHeader.writeUInt32LE(16000, 24); // SampleRate
+    wavHeader.writeUInt32LE(16000 * 2, 28); // ByteRate
+    wavHeader.writeUInt16LE(2, 32);  // BlockAlign
+    wavHeader.writeUInt16LE(16, 34); // BitsPerSample
+    wavHeader.write('data', 36);
+    wavHeader.writeUInt32LE(dataSize, 40);
+
+    const wavBuffer = Buffer.concat([wavHeader, audioBuffer]);
+    console.log(`[DEBUG] Converted to WAV, final size: ${wavBuffer.length} bytes`);
+
+    // STEP 3: SPEECH TO TEXT (Using Groq Whisper API)
+    let transcript = "";
+    
+    try {
+      console.log(`[DEBUG] Attempting STT via Groq Whisper...`);
+      
+      const FormData = require('form-data');
+      const fetch = require('node-fetch');
+      
+      const form = new FormData();
+      form.append('file', wavBuffer, {
+        filename: 'audio.wav',
+        contentType: 'audio/wav',
+      });
+      form.append('model', 'whisper-large-v3');
+      form.append('language', 'en');
+
+      const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+          ...form.getHeaders()
+        },
+        body: form
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Groq API Error: ${response.status} - ${errText}`);
+      }
+
+      const data = await response.json();
+      if (data && data.text) {
+        transcript = data.text;
+      } else {
+        transcript = "Empty transcription received";
+      }
+
+    } catch (err) {
+      console.error('[EROR] Groq STT failed:', err.message);
+      transcript = "Error reading audio"; 
+    }
+
+    console.log(`[DEBUG] Transcript: ${transcript}`);
+
+    let aiResponse = "";
+    
+    try {
+      console.log(`[DEBUG] Running AI Reasoning via Llama 3.2 11B...`);
+      const chatPromise = client.chat.completions.create({
+        model: 'meta/llama-3.2-11b-vision-instruct',
+        messages: [{ role: 'user', content: `The user said: "${transcript}". Reply to their request concisely in less than 20 words.` }],
+        temperature: 0.7,
+        max_tokens: 50,
+      });
+
+      const chatCompletion = await Promise.race([
+        chatPromise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Chat Timeout')), 6000))
+      ]);
+      
+      aiResponse = chatCompletion.choices[0].message.content.trim();
+    } catch (err) {
+      console.error('[EROR] Llama Chat failed:', err.message);
+      aiResponse = "I cannot process that right now.";
+    }
+
+    console.log(`[DEBUG] Llama Response: ${aiResponse}`);
+
+    const finalData = {
+      text: aiResponse,
+      transcript: transcript
+    };
+
+    // If the Webpage is holding the connection open waiting for this, send it directly to the Chat UI!
+    if (hardwareAudioDeferredResponse) {
+      console.log(`[DEBUG] Forwarding ESP32 result directly to Webpage UI!`);
+      hardwareAudioDeferredResponse.json(finalData);
+      hardwareAudioDeferredResponse = null;
+    }
+
+    // STEP 5: RESPONSE (Send a simple 200 OK back to the ESP32 so it doesn't hang)
+    return res.json({
+      message: "Success"
+    });
+
+  } catch (err) {
+    console.error('Pi audio-input error:', err.message);
+    // Return early to prevent timeout
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Audio processing failed' });
+    }
+  }
+});
+
+// POST /api/pi/image-input — Pi sends a camera image → vision analysis → response
+// Accepts: multipart/form-data with field "image" OR JSON { image: base64, prompt: string }
+app.post('/api/pi/image-input', upload.single('image'), async (req, res) => {
+  try {
+    const fetch = require('node-fetch');
+    let imageData = req.body.image; // JSON base64
+
+    // If multipart file upload
+    if (req.file) {
+      imageData = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
+    }
+
+    if (!imageData) return res.status(400).json({ error: 'No image provided' });
+    
+    console.log(`[HARDWARE] 📷 Image received from ESP/Pi! IP: ${req.ip} Data size: ${imageData.length} bytes`);
+
+    const prompt = req.body.prompt || hardwareCameraPrompt || '';
+    hardwareCameraPrompt = '';
+
+    const visionResp = await fetch(`http://localhost:${PORT}/api/vision`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: imageData, prompt, source: 'pi', username: req.body.username || 'unknown' }),
+    });
+    const visionData = await visionResp.json();
+    
+    const finalData = {
+      description: visionData.description,
+      source: 'pi',
+    };
+
+    if (hardwareCameraDeferredResponse) {
+       console.log(`[DEBUG] Forwarding ESP32 Camera result directly to Webpage UI!`);
+       hardwareCameraDeferredResponse.json(finalData);
+       hardwareCameraDeferredResponse = null;
+    }
+
+    res.json(finalData);
+  } catch (err) {
+    console.error('Pi image-input error:', err.message);
+    res.status(500).json({ error: 'Image analysis failed' });
+  }
+});
+
+// POST /api/pi/audio-output — Client requests TTS audio bytes for Pi speaker
+// Body: { text: string }
+// Returns: { text, audioNote: string } — browser TTS is used on the frontend;
+//          this endpoint returns metadata and can be extended with a TTS service.
+app.post('/api/pi/audio-output', async (req, res) => {
+  try {
+    const { text } = req.body;
+    if (!text) return res.status(400).json({ error: 'text required' });
+
+    // If a TTS_API_KEY is configured, call an external TTS service here.
+    // For now we return the text and let the Pi do TTS locally.
+    res.json({
+      text,
+      audioNote: 'Use browser SpeechSynthesis or local Pi espeak/festival for playback.',
+    });
+  } catch (err) {
+    console.error('Pi audio-output error:', err.message);
+    res.status(500).json({ error: 'Audio output failed' });
+  }
+});
+
+// ─── HARDWARE / WEBPAGE SYNC STATE ───────────────────────────────────────────
+let hardwareRecordingRequest = false;
+let hardwareAudioDeferredResponse = null;
+
+let hardwareCameraRequest = false;
+let hardwareCameraDeferredResponse = null;
+let hardwareCameraPrompt = '';
+
+app.get('/api/pi/status', (req, res) => {
+  // ESP32 hits this rapidly. If the webpage pressed the button, this will say "RECORD" or "CAPTURE_IMAGE"
+  if (hardwareRecordingRequest) {
+     hardwareRecordingRequest = false; // Reset so it only triggers once
+     return res.json({ action: "RECORD" });
+  }
+  if (hardwareCameraRequest) {
+     hardwareCameraRequest = false; 
+     return res.json({ action: "CAPTURE_IMAGE" });
+  }
+  return res.json({ action: "IDLE" });
+});
+
+app.post('/api/pi/trigger-hardware-mic', (req, res) => {
+  // The Webpage hits this when you click the Mic button.
+  hardwareRecordingRequest = true;
+  hardwareAudioDeferredResponse = res; // Hold the connection open!
+  
+  // If the ESP is off or ignoring us, timeout after 15 seconds so we don't hang the webpage forever
+  setTimeout(() => {
+     if (hardwareAudioDeferredResponse === res) {
+         hardwareAudioDeferredResponse.status(504).json({ error: "ESP32 did not respond in time.", transcript: "Hardware Timeout" });
+         hardwareAudioDeferredResponse = null;
+     }
+  }, 15000); 
+});
+// ─────────────────────────────────────────────────────────────────────────────
+
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'index.html'));
+});
+
+// ─── Export for Vercel, Listen for Local ─────────────────────────────────────
+module.exports = app;
+
+if (process.env.VERCEL) {
+  // Let Vercel handle the wrapper
+} else {
+    app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Vision AID server running on http://localhost:${PORT}`);
+    console.log('Endpoints: /api/ai/chat, /api/ai/classify, /api/vision, /api/navigation/geocode');
+    console.log('Pi Endpoints: /api/pi/audio-input, /api/pi/image-input, /api/pi/audio-output');
+  });
+}

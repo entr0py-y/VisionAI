@@ -1,0 +1,3386 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+    <title>Vision AID</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap");
+
+      *,
+      *::before,
+      *::after {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      :root {
+        --bg: #0f0f10;
+        --card: rgba(255, 255, 255, 0.05);
+        --glass: rgba(255, 255, 255, 0.08);
+        --accent: #ffffff;
+        --muted: #a1a1aa;
+        --divider: rgba(255, 255, 255, 0.08);
+        --radius: 16px;
+        --transition: 300ms cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      html,
+      body {
+        font-family:
+          "Inter",
+          -apple-system,
+          BlinkMacSystemFont,
+          sans-serif;
+        background: var(--bg);
+        color: var(--accent);
+        overflow-x: hidden;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        height: 100%;
+      }
+
+      body {
+        max-width: 430px;
+        margin: 0 auto;
+        position: relative;
+        min-height: 100vh;
+        padding-bottom: 90px;
+      }
+
+      .app-container {
+        padding: 20px 16px;
+      }
+
+      .header .subtitle {
+        font-size: 10px;
+        color: var(--muted);
+        letter-spacing: 3px;
+        text-transform: uppercase;
+        font-weight: 400;
+      }
+
+      .widgets-row {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 0;
+        margin-bottom: 12px;
+        padding: 0 4px;
+      }
+
+      .widget-card {
+        background: transparent;
+        border: none;
+        border-radius: 0;
+        padding: 14px 12px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        position: relative;
+        overflow: visible;
+        min-height: 90px;
+      }
+
+      .widget-card::before {
+        display: none;
+      }
+
+      .widget-card.widget-wide {
+        grid-column: span 2;
+        min-height: 80px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+        margin-bottom: 4px;
+        padding-bottom: 18px;
+      }
+
+      .widget-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: auto;
+      }
+
+      .widget-icon {
+        width: 30px;
+        height: 30px;
+        border-radius: 8px;
+        background: transparent;
+        border: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .widget-icon svg {
+        width: 16px;
+        height: 16px;
+        stroke: var(--muted);
+        stroke-width: 1.5;
+        fill: none;
+        opacity: 0.5;
+      }
+
+      .widget-badge {
+        font-size: 9px;
+        color: rgba(255, 255, 255, 0.25);
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        background: transparent;
+        padding: 0;
+        border-radius: 0;
+        border: none;
+      }
+
+      .widget-bottom {
+        margin-top: 8px;
+      }
+
+      .widget-value {
+        font-size: 28px;
+        font-weight: 700;
+        letter-spacing: -0.5px;
+        line-height: 1;
+        margin-bottom: 3px;
+      }
+
+      .widget-value.widget-value-sm {
+        font-size: 20px;
+        letter-spacing: 0;
+      }
+
+      .widget-label {
+        font-size: 10px;
+        color: rgba(255, 255, 255, 0.3);
+        font-weight: 400;
+        letter-spacing: 0.3px;
+        text-transform: uppercase;
+      }
+
+      .widget-sub {
+        font-size: 9px;
+        color: rgba(255, 255, 255, 0.15);
+        margin-top: 2px;
+      }
+
+      .widget-bar {
+        width: 100%;
+        height: 3px;
+        background: rgba(255, 255, 255, 0.04);
+        border-radius: 2px;
+        margin-top: 8px;
+        overflow: hidden;
+      }
+
+      .widget-bar-fill {
+        height: 100%;
+        border-radius: 2px;
+        transition: width 1s ease;
+      }
+
+      .widget-bar-fill.battery-fill {
+        background: linear-gradient(90deg, #ffffff, #a0ffa0, #39ff14);
+        box-shadow:
+          0 0 8px rgba(57, 255, 20, 0.4),
+          0 0 2px rgba(57, 255, 20, 0.6);
+      }
+
+      .widget-row-inline {
+        display: flex;
+        align-items: baseline;
+        gap: 4px;
+      }
+
+      .widget-row-inline .widget-unit {
+        font-size: 14px;
+        font-weight: 400;
+        color: rgba(255, 255, 255, 0.3);
+      }
+
+      .widget-time-display {
+        font-size: 48px;
+        font-weight: 200;
+        letter-spacing: -1.5px;
+        line-height: 1;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .widget-time-seconds {
+        font-size: 16px;
+        font-weight: 300;
+        color: rgba(255, 255, 255, 0.25);
+        margin-left: 4px;
+      }
+
+      .widget-time-date {
+        font-size: 11px;
+        color: rgba(255, 255, 255, 0.3);
+        margin-top: 4px;
+        font-weight: 400;
+      }
+
+      .widget-location-name {
+        font-size: 20px;
+        font-weight: 600;
+        letter-spacing: 0.2px;
+        line-height: 1.2;
+        margin-bottom: 3px;
+      }
+
+      .widget-coords {
+        font-size: 9px;
+        color: rgba(255, 255, 255, 0.18);
+        font-family: "SF Mono", "Fira Code", monospace;
+        letter-spacing: 0.5px;
+        margin-top: 2px;
+      }
+
+      .widget-signal-bars {
+        display: flex;
+        align-items: flex-end;
+        gap: 2px;
+        margin-top: 6px;
+      }
+
+      .signal-bar {
+        width: 3px;
+        border-radius: 1px;
+        background: rgba(255, 255, 255, 0.1);
+      }
+
+      .signal-bar.active {
+        background: rgba(255, 255, 255, 0.4);
+      }
+
+      .widgets-divider {
+        grid-column: span 2;
+        height: 1px;
+        background: linear-gradient(
+          90deg,
+          transparent,
+          rgba(255, 255, 255, 0.05),
+          transparent
+        );
+        margin: 2px 10px;
+      }
+
+      .cards-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 14px;
+        padding: 0 4px;
+      }
+
+      .module-card {
+        background: linear-gradient(
+          145deg,
+          rgba(255, 255, 255, 0.06) 0%,
+          rgba(255, 255, 255, 0.02) 40%,
+          rgba(255, 255, 255, 0.04) 100%
+        );
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 22px;
+        padding: 16px 8px;
+        cursor: pointer;
+        transition: all var(--transition);
+        backdrop-filter: blur(24px) saturate(150%) brightness(1.05);
+        -webkit-backdrop-filter: blur(24px) saturate(150%) brightness(1.05);
+        position: relative;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-tap-highlight-color: transparent;
+        aspect-ratio: 1;
+        box-shadow:
+          0 4px 24px rgba(0, 0, 0, 0.25),
+          0 1px 3px rgba(0, 0, 0, 0.15),
+          inset 0 1px 0 rgba(255, 255, 255, 0.1),
+          inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+      }
+
+      .module-card::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 50%;
+        background: linear-gradient(
+          180deg,
+          rgba(255, 255, 255, 0.08) 0%,
+          rgba(255, 255, 255, 0.02) 60%,
+          transparent 100%
+        );
+        pointer-events: none;
+        border-radius: 22px 22px 0 0;
+      }
+
+      .module-card::after {
+        content: "";
+        position: absolute;
+        top: -50%;
+        left: -50%;
+        width: 200%;
+        height: 200%;
+        background: radial-gradient(
+          circle at 30% 20%,
+          rgba(255, 255, 255, 0.06) 0%,
+          transparent 50%
+        );
+        pointer-events: none;
+        transition: all 0.5s ease;
+      }
+
+      .module-card:active {
+        transform: scale(0.94);
+        box-shadow:
+          0 2px 12px rgba(0, 0, 0, 0.3),
+          inset 0 1px 0 rgba(255, 255, 255, 0.06),
+          inset 0 -1px 0 rgba(0, 0, 0, 0.15);
+        background: linear-gradient(
+          145deg,
+          rgba(255, 255, 255, 0.09) 0%,
+          rgba(255, 255, 255, 0.03) 40%,
+          rgba(255, 255, 255, 0.05) 100%
+        );
+      }
+
+      .module-card:hover {
+        border-color: rgba(255, 255, 255, 0.18);
+      }
+
+      .card-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.05);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+      }
+
+      .card-icon svg {
+        width: 24px;
+        height: 24px;
+        stroke: var(--accent);
+        stroke-width: 1.5;
+        fill: none;
+        opacity: 0.85;
+      }
+
+      .card-content {
+        text-align: center;
+      }
+
+      .card-title {
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 0.2px;
+        line-height: 1.3;
+      }
+
+      .card-desc {
+        display: none;
+      }
+
+      .card-arrow {
+        display: none;
+        opacity: 0.3;
+        flex-shrink: 0;
+      }
+
+      .card-arrow svg {
+        width: 16px;
+        height: 16px;
+        stroke: var(--accent);
+        stroke-width: 2;
+        fill: none;
+      }
+
+      .bottom-nav {
+        position: fixed;
+        bottom: 0;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 100%;
+        max-width: 430px;
+        background: linear-gradient(
+          180deg,
+          rgba(28, 28, 30, 0.55) 0%,
+          rgba(22, 22, 24, 0.75) 50%,
+          rgba(18, 18, 20, 0.85) 100%
+        );
+        backdrop-filter: blur(40px) saturate(180%) brightness(1.1);
+        -webkit-backdrop-filter: blur(40px) saturate(180%) brightness(1.1);
+        border-top: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow:
+          0 -8px 32px rgba(0, 0, 0, 0.4),
+          inset 0 1px 0 rgba(255, 255, 255, 0.08),
+          inset 0 -1px 0 rgba(0, 0, 0, 0.2);
+        display: flex;
+        justify-content: space-around;
+        align-items: center;
+        padding: 8px 0;
+        padding-bottom: max(8px, env(safe-area-inset-bottom));
+        z-index: 100;
+        position: fixed;
+      }
+
+      .bottom-nav::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 10%;
+        right: 10%;
+        height: 1px;
+        background: linear-gradient(
+          90deg,
+          transparent,
+          rgba(255, 255, 255, 0.15),
+          transparent
+        );
+        pointer-events: none;
+      }
+
+      .bottom-nav::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+          135deg,
+          rgba(255, 255, 255, 0.04) 0%,
+          transparent 40%,
+          transparent 60%,
+          rgba(255, 255, 255, 0.02) 100%
+        );
+        pointer-events: none;
+        border-radius: 0;
+      }
+
+      .nav-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        cursor: pointer;
+        padding: 8px 16px;
+        border-radius: 12px;
+        transition: all var(--transition);
+        -webkit-tap-highlight-color: transparent;
+        user-select: none;
+      }
+
+      .nav-item.active {
+        background: linear-gradient(
+          145deg,
+          rgba(255, 255, 255, 0.1) 0%,
+          rgba(255, 255, 255, 0.04) 100%
+        );
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      }
+
+      .nav-item svg {
+        width: 22px;
+        height: 22px;
+        stroke: var(--muted);
+        stroke-width: 1.5;
+        fill: none;
+        transition: all var(--transition);
+      }
+
+      .nav-item.active svg {
+        stroke: var(--accent);
+      }
+
+      .nav-sos {
+        position: relative;
+      }
+
+      .nav-sos svg {
+        stroke: rgba(255, 255, 255, 0.9) !important;
+        width: 26px !important;
+        height: 26px !important;
+      }
+
+      .nav-sos .nav-label {
+        font-weight: 600;
+        letter-spacing: 1px;
+      }
+
+      .nav-sos.sos-triggered svg {
+        stroke: white !important;
+        animation: sosPulseNav 0.6s ease infinite;
+      }
+
+      @keyframes sosPulseNav {
+        0%,
+        100% {
+          transform: scale(1);
+        }
+        50% {
+          transform: scale(1.15);
+        }
+      }
+
+      .nav-label {
+        font-size: 10px;
+        color: var(--muted);
+        font-weight: 500;
+        transition: all var(--transition);
+      }
+
+      .nav-item.active .nav-label {
+        color: var(--accent);
+      }
+
+      .modal-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.6);
+        z-index: 200;
+        opacity: 0;
+        visibility: hidden;
+        transition: all var(--transition);
+        max-width: 430px;
+        margin: 0 auto;
+        left: 0;
+        right: 0;
+      }
+
+      .modal-overlay.active {
+        opacity: 1;
+        visibility: visible;
+      }
+
+      .modal-panel {
+        position: fixed;
+        bottom: 0;
+        left: 50%;
+        transform: translateX(-50%) translateY(100%);
+        width: 100%;
+        max-width: 430px;
+        max-height: 85vh;
+        background: linear-gradient(
+          180deg,
+          rgba(32, 32, 36, 0.8) 0%,
+          rgba(22, 22, 26, 0.92) 30%,
+          rgba(18, 18, 22, 0.96) 100%
+        );
+        backdrop-filter: blur(50px) saturate(180%) brightness(1.08);
+        -webkit-backdrop-filter: blur(50px) saturate(180%) brightness(1.08);
+        border-top-left-radius: 28px;
+        border-top-right-radius: 28px;
+        z-index: 201;
+        transition: transform 400ms cubic-bezier(0.4, 0, 0.2, 1);
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-bottom: none;
+        box-shadow:
+          0 -12px 48px rgba(0, 0, 0, 0.5),
+          inset 0 1px 0 rgba(255, 255, 255, 0.1),
+          inset 0 0 60px rgba(255, 255, 255, 0.02);
+      }
+
+      .modal-panel.active {
+        transform: translateX(-50%) translateY(0);
+      }
+
+      .modal-handle {
+        width: 36px;
+        height: 4px;
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 2px;
+        margin: 10px auto 0;
+      }
+
+      .modal-header {
+        padding: 20px 24px 16px;
+        text-align: center;
+        border-bottom: 1px solid var(--divider);
+      }
+
+      .modal-header h2 {
+        font-size: 20px;
+        font-weight: 600;
+        letter-spacing: 0.3px;
+        margin-bottom: 4px;
+      }
+
+      .modal-header p {
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .modal-body {
+        padding: 20px 24px 40px;
+      }
+
+      .feature-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-bottom: 24px;
+      }
+
+      .feature-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 14px;
+        background: var(--card);
+        border: 1px solid var(--divider);
+        border-radius: 12px;
+        font-size: 13px;
+        font-weight: 400;
+      }
+
+      .status-badge-inline {
+        padding: 12px 14px;
+        background: rgba(74, 222, 128, 0.1);
+        border: 1px solid rgba(74, 222, 128, 0.2);
+        border-radius: 12px;
+        font-size: 13px;
+        color: #4ade80;
+        text-align: center;
+      }
+
+      .future-info {
+        background: var(--card);
+        border: 1px solid var(--divider);
+        border-radius: 16px;
+        padding: 20px;
+        line-height: 1.6;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .upcoming-list {
+        margin-top: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .feature-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--muted);
+        flex-shrink: 0;
+      }
+
+      .modal-section {
+        margin-top: 20px;
+      }
+
+      .modal-section-title {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        color: var(--muted);
+        margin-bottom: 12px;
+        font-weight: 500;
+      }
+
+      .live-preview {
+        width: 100%;
+        height: 180px;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid var(--divider);
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .live-preview-grid {
+        position: absolute;
+        inset: 0;
+        background-image:
+          linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+        background-size: 20px 20px;
+      }
+
+      .live-preview-text {
+        font-size: 11px;
+        color: var(--muted);
+        z-index: 1;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+      }
+
+      .detection-log {
+        background: rgba(0, 0, 0, 0.3);
+        border: 1px solid var(--divider);
+        border-radius: 12px;
+        padding: 14px;
+        font-family: "SF Mono", "Fira Code", monospace;
+        font-size: 11px;
+        color: var(--muted);
+        max-height: 120px;
+        overflow: hidden;
+        margin-top: 12px;
+      }
+
+      .log-entry {
+        padding: 3px 0;
+        opacity: 0;
+        animation: fadeInLog 0.5s ease forwards;
+        display: flex;
+        gap: 8px;
+      }
+
+      .log-entry .log-time {
+        color: rgba(255, 255, 255, 0.3);
+        flex-shrink: 0;
+      }
+
+      @keyframes fadeInLog {
+        from {
+          opacity: 0;
+          transform: translateY(5px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .map-placeholder {
+        width: 100%;
+        height: 200px;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid var(--divider);
+        border-radius: 14px;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .map-grid {
+        position: absolute;
+        inset: 0;
+        background-image: radial-gradient(
+          circle,
+          rgba(255, 255, 255, 0.04) 1px,
+          transparent 1px
+        );
+        background-size: 24px 24px;
+      }
+
+      .route-line {
+        position: absolute;
+        top: 20%;
+        left: 15%;
+        width: 70%;
+        height: 60%;
+      }
+
+      .route-line svg {
+        width: 100%;
+        height: 100%;
+      }
+
+      .route-path {
+        stroke: rgba(255, 255, 255, 0.3);
+        stroke-width: 2;
+        fill: none;
+        stroke-dasharray: 200;
+        stroke-dashoffset: 200;
+        animation: drawRoute 3s ease infinite;
+        stroke-linecap: round;
+      }
+
+      @keyframes drawRoute {
+        0% {
+          stroke-dashoffset: 200;
+        }
+        50% {
+          stroke-dashoffset: 0;
+        }
+        100% {
+          stroke-dashoffset: -200;
+        }
+      }
+
+      .route-dot {
+        fill: white;
+        animation: moveDot 3s ease infinite;
+      }
+
+      .crowd-meter {
+        margin-top: 16px;
+      }
+
+      .meter-bar {
+        height: 6px;
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 3px;
+        overflow: hidden;
+        margin-top: 8px;
+      }
+
+      .meter-fill {
+        height: 100%;
+        background: linear-gradient(
+          90deg,
+          rgba(255, 255, 255, 0.2),
+          rgba(255, 255, 255, 0.5)
+        );
+        border-radius: 3px;
+        transition: width 1s ease;
+      }
+
+      .meter-labels {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 6px;
+        font-size: 10px;
+        color: var(--muted);
+      }
+
+      .eta-panel {
+        display: flex;
+        gap: 12px;
+        margin-top: 16px;
+      }
+
+      .eta-card {
+        flex: 1;
+        background: var(--card);
+        border: 1px solid var(--divider);
+        border-radius: 12px;
+        padding: 14px;
+        text-align: center;
+      }
+
+      .eta-value {
+        font-size: 22px;
+        font-weight: 600;
+        margin-bottom: 2px;
+      }
+
+      .eta-label {
+        font-size: 10px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 1px;
+      }
+
+      .scan-area {
+        width: 100%;
+        height: 200px;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid var(--divider);
+        border-radius: 14px;
+        position: relative;
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .scan-line {
+        position: absolute;
+        left: 10%;
+        width: 80%;
+        height: 2px;
+        background: linear-gradient(
+          90deg,
+          transparent,
+          rgba(255, 255, 255, 0.5),
+          transparent
+        );
+        top: 0;
+        animation: scanMove 2.5s ease-in-out infinite;
+      }
+
+      @keyframes scanMove {
+        0% {
+          top: 10%;
+        }
+        50% {
+          top: 90%;
+        }
+        100% {
+          top: 10%;
+        }
+      }
+
+      .scan-corners {
+        position: absolute;
+        inset: 20px;
+        border: 2px solid transparent;
+      }
+
+      .scan-corners::before,
+      .scan-corners::after {
+        content: "";
+        position: absolute;
+        width: 20px;
+        height: 20px;
+        border-color: rgba(255, 255, 255, 0.3);
+        border-style: solid;
+      }
+
+      .scan-corners::before {
+        top: 0;
+        left: 0;
+        border-width: 2px 0 0 2px;
+        border-radius: 4px 0 0 0;
+      }
+
+      .scan-corners::after {
+        top: 0;
+        right: 0;
+        border-width: 2px 2px 0 0;
+        border-radius: 0 4px 0 0;
+      }
+
+      .scan-corners-bottom {
+        position: absolute;
+        inset: 20px;
+      }
+
+      .scan-corners-bottom::before,
+      .scan-corners-bottom::after {
+        content: "";
+        position: absolute;
+        width: 20px;
+        height: 20px;
+        border-color: rgba(255, 255, 255, 0.3);
+        border-style: solid;
+      }
+
+      .scan-corners-bottom::before {
+        bottom: 0;
+        left: 0;
+        border-width: 0 0 2px 2px;
+        border-radius: 0 0 0 4px;
+      }
+
+      .scan-corners-bottom::after {
+        bottom: 0;
+        right: 0;
+        border-width: 0 2px 2px 0;
+        border-radius: 0 0 4px 0;
+      }
+
+      .scan-btn {
+        width: 100%;
+        padding: 14px;
+        border: none;
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.1);
+        color: white;
+        font-family: inherit;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        margin-top: 16px;
+        transition: all var(--transition);
+        letter-spacing: 0.5px;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .scan-btn:active {
+        transform: scale(0.96);
+        background: rgba(255, 255, 255, 0.15);
+      }
+
+      .extracted-text {
+        background: rgba(0, 0, 0, 0.3);
+        border: 1px solid var(--divider);
+        border-radius: 12px;
+        padding: 16px;
+        margin-top: 12px;
+        font-size: 12px;
+        color: var(--muted);
+        line-height: 1.6;
+        min-height: 60px;
+      }
+
+      .sos-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 20px;
+        padding: 20px 0;
+      }
+
+      .sos-btn {
+        width: 120px;
+        height: 120px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.08);
+        border: 2px solid rgba(255, 255, 255, 0.15);
+        color: white;
+        font-family: inherit;
+        font-size: 20px;
+        font-weight: 700;
+        letter-spacing: 3px;
+        cursor: pointer;
+        position: relative;
+        transition: all var(--transition);
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .sos-btn::before {
+        content: "";
+        position: absolute;
+        inset: -8px;
+        border-radius: 50%;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        animation: sosPulse 2s ease infinite;
+      }
+
+      .sos-btn::after {
+        content: "";
+        position: absolute;
+        inset: -16px;
+        border-radius: 50%;
+        border: 1px solid rgba(255, 255, 255, 0.04);
+        animation: sosPulse 2s ease 0.5s infinite;
+      }
+
+      @keyframes sosPulse {
+        0% {
+          transform: scale(1);
+          opacity: 1;
+        }
+        100% {
+          transform: scale(1.3);
+          opacity: 0;
+        }
+      }
+
+      .sos-btn:active {
+        transform: scale(0.92);
+        background: rgba(255, 255, 255, 0.15);
+      }
+
+      .risk-meter {
+        width: 100%;
+        margin-top: 8px;
+      }
+
+      .risk-bar {
+        height: 8px;
+        background: rgba(255, 255, 255, 0.06);
+        border-radius: 4px;
+        overflow: hidden;
+      }
+
+      .risk-fill {
+        height: 100%;
+        width: 25%;
+        background: linear-gradient(
+          90deg,
+          rgba(255, 255, 255, 0.15),
+          rgba(255, 255, 255, 0.4)
+        );
+        border-radius: 4px;
+        transition: width 1s ease;
+      }
+
+      .risk-label {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 6px;
+        font-size: 10px;
+        color: var(--muted);
+      }
+
+      .battery-panel {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        margin-top: 16px;
+        padding: 16px;
+        background: var(--card);
+        border: 1px solid var(--divider);
+        border-radius: 12px;
+      }
+
+      .battery-icon {
+        width: 40px;
+        height: 20px;
+        border: 1.5px solid rgba(255, 255, 255, 0.3);
+        border-radius: 4px;
+        position: relative;
+        display: flex;
+        align-items: center;
+        padding: 2px;
+      }
+
+      .battery-icon::after {
+        content: "";
+        position: absolute;
+        right: -5px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 3px;
+        height: 8px;
+        background: rgba(255, 255, 255, 0.3);
+        border-radius: 0 2px 2px 0;
+      }
+
+      .battery-level {
+        height: 100%;
+        background: rgba(255, 255, 255, 0.4);
+        border-radius: 2px;
+        transition: width 1s ease;
+      }
+
+      .battery-text {
+        font-size: 14px;
+        font-weight: 500;
+      }
+
+      .battery-status {
+        font-size: 11px;
+        color: var(--muted);
+      }
+
+      .chat-container {
+        background: rgba(0, 0, 0, 0.2);
+        border: 1px solid var(--divider);
+        border-radius: 14px;
+        padding: 16px;
+        min-height: 200px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .chat-msg {
+        max-width: 80%;
+        padding: 10px 14px;
+        border-radius: 14px;
+        font-size: 13px;
+        line-height: 1.5;
+        animation: msgIn 0.3s ease;
+      }
+
+      @keyframes msgIn {
+        from {
+          opacity: 0;
+          transform: translateY(8px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .chat-msg.user {
+        align-self: flex-end;
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .chat-msg.ai {
+        align-self: flex-start;
+        background: var(--card);
+        border: 1px solid var(--divider);
+        color: var(--muted);
+      }
+
+      .typing-indicator {
+        display: flex;
+        gap: 4px;
+        padding: 10px 14px;
+        align-self: flex-start;
+      }
+
+      .typing-indicator span {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--muted);
+        animation: typingBounce 1.4s ease infinite;
+      }
+
+      .typing-indicator span:nth-child(2) {
+        animation-delay: 0.2s;
+      }
+      .typing-indicator span:nth-child(3) {
+        animation-delay: 0.4s;
+      }
+
+      @keyframes typingBounce {
+        0%,
+        60%,
+        100% {
+          transform: translateY(0);
+          opacity: 0.4;
+        }
+        30% {
+          transform: translateY(-6px);
+          opacity: 1;
+        }
+      }
+
+      .chat-input-row {
+        display: flex;
+        gap: 8px;
+        margin-top: 12px;
+      }
+
+      .chat-input {
+        flex: 1;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid var(--divider);
+        border-radius: 12px;
+        padding: 10px 14px;
+        font-family: inherit;
+        font-size: 13px;
+        color: white;
+        outline: none;
+        transition: all var(--transition);
+      }
+
+      .chat-input:focus {
+        border-color: rgba(255, 255, 255, 0.2);
+      }
+
+      .chat-send {
+        width: 40px;
+        height: 40px;
+        border: none;
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.1);
+        color: white;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all var(--transition);
+        -webkit-tap-highlight-color: transparent;
+        flex-shrink: 0;
+      }
+
+      .chat-send:active {
+        transform: scale(0.9);
+        background: rgba(255, 255, 255, 0.2);
+      }
+
+      .toggle-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 14px 16px;
+        background: var(--card);
+        border: 1px solid var(--divider);
+        border-radius: 12px;
+        margin-bottom: 8px;
+      }
+
+      .toggle-label {
+        font-size: 13px;
+        font-weight: 400;
+      }
+
+      .toggle-switch {
+        width: 44px;
+        height: 26px;
+        border-radius: 13px;
+        background: rgba(255, 255, 255, 0.1);
+        position: relative;
+        cursor: pointer;
+        transition: all var(--transition);
+        -webkit-tap-highlight-color: transparent;
+        flex-shrink: 0;
+      }
+
+      .toggle-switch.on {
+        background: rgba(255, 255, 255, 0.25);
+      }
+
+      .toggle-knob {
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        background: white;
+        position: absolute;
+        top: 3px;
+        left: 3px;
+        transition: all var(--transition);
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+      }
+
+      .toggle-switch.on .toggle-knob {
+        left: 21px;
+      }
+
+      .slider-row {
+        padding: 14px 16px;
+        background: var(--card);
+        border: 1px solid var(--divider);
+        border-radius: 12px;
+        margin-bottom: 8px;
+      }
+
+      .slider-header {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 10px;
+      }
+
+      .slider-label {
+        font-size: 13px;
+      }
+
+      .slider-value {
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      .slider-track {
+        width: 100%;
+        height: 4px;
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 2px;
+        position: relative;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .slider-fill {
+        height: 100%;
+        background: rgba(255, 255, 255, 0.35);
+        border-radius: 2px;
+        transition: width 0.1s ease;
+      }
+
+      .slider-thumb {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: white;
+        position: absolute;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        cursor: grab;
+        transition: transform 0.1s ease;
+      }
+
+      .slider-thumb:active {
+        transform: translate(-50%, -50%) scale(1.2);
+      }
+
+      .arch-visual {
+        width: 100%;
+        padding: 20px 0;
+      }
+
+      .arch-layer {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+        margin: 0 auto;
+        border-radius: 12px;
+        border: 1px solid var(--divider);
+        background: var(--card);
+        position: relative;
+        text-align: center;
+      }
+
+      .arch-layer .layer-name {
+        font-size: 13px;
+        font-weight: 500;
+      }
+
+      .arch-layer .layer-desc {
+        font-size: 10px;
+        color: var(--muted);
+        margin-top: 2px;
+      }
+
+      .arch-connector {
+        display: flex;
+        justify-content: center;
+        padding: 6px 0;
+        position: relative;
+      }
+
+      .arch-connector::before {
+        content: "";
+        width: 1px;
+        height: 20px;
+        background: linear-gradient(
+          to bottom,
+          rgba(255, 255, 255, 0.15),
+          rgba(255, 255, 255, 0.05)
+        );
+      }
+
+      .data-flow-dot {
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.4);
+        position: absolute;
+        left: 50%;
+        transform: translateX(-50%);
+        animation: flowDown 1.5s ease infinite;
+      }
+
+      @keyframes flowDown {
+        0% {
+          top: 0;
+          opacity: 0;
+        }
+        20% {
+          opacity: 1;
+        }
+        80% {
+          opacity: 1;
+        }
+        100% {
+          top: 100%;
+          opacity: 0;
+        }
+      }
+
+      .arch-connector:nth-child(4) .data-flow-dot {
+        animation-delay: 0.5s;
+      }
+      .arch-connector:nth-child(6) .data-flow-dot {
+        animation-delay: 1s;
+      }
+
+      .status-metrics {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .status-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 12px;
+      }
+
+      .status-label {
+        width: 70px;
+        color: var(--muted);
+        flex-shrink: 0;
+        font-size: 11px;
+      }
+
+      .status-row .meter-bar {
+        flex: 1;
+      }
+
+      .status-val {
+        width: 48px;
+        text-align: right;
+        font-size: 11px;
+        color: var(--muted);
+        flex-shrink: 0;
+      }
+
+      .coming-soon-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 12px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid var(--divider);
+        border-radius: 20px;
+        font-size: 10px;
+        color: var(--muted);
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+      }
+
+      .future-grid {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .future-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 14px 16px;
+        background: var(--card);
+        border: 1px solid var(--divider);
+        border-radius: 12px;
+      }
+
+      .future-item-name {
+        font-size: 13px;
+        font-weight: 400;
+      }
+
+      .system-log {
+        position: fixed;
+        bottom: 76px;
+        left: 50%;
+        transform: translateX(-50%);
+        max-width: 400px;
+        width: calc(100% - 32px);
+        z-index: 50;
+        pointer-events: none;
+      }
+
+      .log-toast {
+        background: rgba(20, 20, 22, 0.9);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid var(--divider);
+        border-radius: 10px;
+        padding: 8px 14px;
+        font-size: 11px;
+        color: var(--muted);
+        font-family: "SF Mono", "Fira Code", monospace;
+        animation:
+          toastIn 0.3s ease,
+          toastOut 0.3s ease 2.7s forwards;
+        margin-bottom: 4px;
+      }
+
+      @keyframes toastIn {
+        from {
+          opacity: 0;
+          transform: translateY(10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @keyframes toastOut {
+        from {
+          opacity: 1;
+        }
+        to {
+          opacity: 0;
+          transform: translateY(-5px);
+        }
+      }
+
+      .scan-active .scan-line {
+        animation-play-state: running;
+      }
+
+      .scan-paused .scan-line {
+        animation-play-state: paused;
+      }
+
+      ::-webkit-scrollbar {
+        width: 0;
+        height: 0;
+      }
+
+      .modal-panel::-webkit-scrollbar {
+        width: 0;
+      }
+
+      @media (prefers-color-scheme: dark) {
+      }
+
+      .chat-mic {
+        width: 40px;
+        height: 40px;
+        border: none;
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.1);
+        color: white;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all var(--transition);
+        -webkit-tap-highlight-color: transparent;
+        flex-shrink: 0;
+      }
+      .chat-mic:active {
+        transform: scale(0.9);
+        background: rgba(255, 255, 255, 0.2);
+      }
+      .chat-mic.recording {
+        background: rgba(239, 68, 68, 0.3);
+        animation: micPulse 1.2s ease infinite;
+      }
+      @keyframes micPulse {
+        0%,
+        100% {
+          box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.3);
+        }
+        50% {
+          box-shadow: 0 0 0 8px rgba(239, 68, 68, 0);
+        }
+      }
+
+      .chat-timestamp {
+        font-size: 9px;
+        color: rgba(255, 255, 255, 0.2);
+        margin-top: 2px;
+        text-align: right;
+      }
+      .chat-msg.ai .chat-timestamp {
+        text-align: left;
+      }
+
+      .wake-indicator {
+        position: fixed;
+        top: 12px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(74, 222, 128, 0.15);
+        border: 1px solid rgba(74, 222, 128, 0.3);
+        border-radius: 20px;
+        padding: 4px 12px;
+        font-size: 10px;
+        color: #4ade80;
+        letter-spacing: 0.5px;
+        z-index: 300;
+        opacity: 0;
+        visibility: hidden;
+        transition: all 0.3s ease;
+        pointer-events: none;
+        display: none !important;
+      }
+      .wake-indicator.active {
+        opacity: 1;
+        visibility: visible;
+      }
+
+      .voice-out-indicator {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 9px;
+        color: rgba(255, 255, 255, 0.3);
+        margin-top: 4px;
+      }
+      .voice-out-indicator svg {
+        width: 10px;
+        height: 10px;
+        stroke: rgba(255, 255, 255, 0.3);
+        stroke-width: 2;
+        fill: none;
+      }
+      /* ===== MOBILITY MAP STYLES ===== */
+      #mobilityMapContainer {
+        width: 100%;
+        height: 280px;
+        border-radius: 14px;
+        overflow: hidden;
+        border: 1px solid var(--divider);
+        position: relative;
+        z-index: 1;
+      }
+      #mobilityMapContainer .leaflet-control-zoom a {
+        width: 36px;
+        height: 36px;
+        line-height: 36px;
+        font-size: 20px;
+        background: rgba(30,30,30,0.9);
+        color: #fff;
+        border: 1px solid rgba(255,255,255,0.15);
+      }
+      .leaflet-routing-container { display: none !important; }
+      .mobility-nav-status {
+        padding: 10px 14px;
+        background: rgba(66,133,244,0.1);
+        border: 1px solid rgba(66,133,244,0.3);
+        border-radius: 10px;
+        margin-top: 10px;
+        font-size: 13px;
+        color: rgba(255,255,255,0.8);
+        display: none;
+      }
+      .mobility-nav-status.active { display: block; }
+    </style>
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  </head>
+  <body>
+    <div class="wake-indicator" id="wakeIndicator">
+      🎙️ Tap mic to speak
+    </div>
+
+    <!-- App Container -->
+    <div class="app-container" id="appContainer">
+      <div class="widgets-row">
+        <div class="widget-card widget-wide" style="position: relative;">
+          
+          <div style="position: absolute; right: 16px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; align-items: center; justify-content: center;">
+            <svg
+              viewBox="0 0 200 100"
+              fill="white"
+              xmlns="http://www.w3.org/2000/svg"
+              style="width: 50px; height: auto; opacity: 0.9; margin-bottom: 6px;"
+            >
+              <path
+                d="M100 20 C60 20 25 50 10 65 Q5 70 10 75 C30 95 65 95 100 80 C135 95 170 95 190 75 Q195 70 190 65 C175 50 140 20 100 20Z"
+                fill="none"
+                stroke="white"
+                stroke-width="5"
+              />
+              <path
+                d="M100 30 C70 30 40 50 25 65 Q55 85 100 72 Q145 85 175 65 C160 50 130 30 100 30Z"
+                fill="none"
+                stroke="white"
+                stroke-width="3"
+                opacity="0.5"
+              />
+              <circle cx="100" cy="52" r="12" fill="white" />
+            </svg>
+            <div style="font-size: 10px; color: var(--muted); letter-spacing: 2px; text-transform: uppercase; font-weight: 400;">Vision AID</div>
+          </div>
+
+          <div class="widget-top">
+            <div class="widget-icon">
+              <svg viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10" />
+                <polyline points="12 6 12 12 16 14" />
+              </svg>
+            </div>
+            <!-- Badge removed to clear space for the logo on the right -->
+          </div>
+          <div class="widget-bottom">
+            <div class="widget-row-inline">
+              <span class="widget-time-display" id="widgetTime">--:--</span>
+              <span class="widget-time-seconds" id="widgetSec">00</span>
+            </div>
+            <div class="widget-time-date" id="widgetDate">Mon, 24 Feb 2026</div>
+          </div>
+        </div>
+
+        <div class="widget-card">
+          <div class="widget-top">
+            <div class="widget-icon">
+              <svg viewBox="0 0 24 24">
+                <rect x="6" y="2" width="12" height="20" rx="2" ry="2" />
+                <line x1="12" y1="18" x2="12.01" y2="18" />
+              </svg>
+            </div>
+          </div>
+          <div class="widget-bottom">
+            <div class="widget-row-inline">
+              <span class="widget-value" id="widgetBattery">87</span>
+              <span class="widget-unit">%</span>
+            </div>
+            <div class="widget-label">Battery</div>
+            <div class="widget-bar">
+              <div
+                class="widget-bar-fill battery-fill"
+                id="batteryBar"
+                style="width: 87%"
+              ></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="widget-card">
+          <div class="widget-top">
+            <div class="widget-icon">
+              <svg viewBox="0 0 24 24">
+                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+                <circle cx="12" cy="10" r="3" />
+              </svg>
+            </div>
+          </div>
+          <div class="widget-bottom">
+            <div class="widget-location-name" id="widgetLocation">Locating</div>
+            <div class="widget-label">Location</div>
+            <div class="widget-coords" id="widgetCoords">GPS Active</div>
+          </div>
+        </div>
+
+        <div class="widget-card">
+          <div class="widget-top">
+            <div class="widget-icon">
+              <svg viewBox="0 0 24 24">
+                <path d="M5 12.55a11 11 0 0 1 14.08 0" />
+                <path d="M1.42 9a16 16 0 0 1 21.16 0" />
+                <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
+                <circle cx="12" cy="20" r="1" />
+              </svg>
+            </div>
+          </div>
+          <div class="widget-bottom">
+            <div class="widget-value widget-value-sm" id="widgetLatency">
+              12ms
+            </div>
+            <div class="widget-label">Network</div>
+            <div class="widget-signal-bars" id="signalBars">
+              <div class="signal-bar active" style="height: 6px"></div>
+              <div class="signal-bar active" style="height: 10px"></div>
+              <div class="signal-bar active" style="height: 14px"></div>
+              <div class="signal-bar" style="height: 18px"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="widget-card">
+          <div class="widget-top">
+            <div class="widget-icon">
+              <svg viewBox="0 0 24 24">
+                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+              </svg>
+            </div>
+          </div>
+          <div class="widget-bottom">
+            <div class="widget-value widget-value-sm" id="widgetSensors">Active</div>
+            <div class="widget-label">Sensors</div>
+            <div class="widget-sub" id="sensorCount">Calculating...</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="cards-grid" id="cardsGrid"></div>
+    </div>
+
+    <div class="system-log" id="systemLog"></div>
+
+    <nav class="bottom-nav">
+      <div class="nav-item active" data-tab="home" onclick="switchTab(this)">
+        <svg viewBox="0 0 24 24">
+          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+          <polyline points="9 22 9 12 15 12 15 22" />
+        </svg>
+        <span class="nav-label">Home</span>
+      </div>
+      <div class="nav-item" data-tab="scan" onclick="switchTab(this)">
+        <svg viewBox="0 0 24 24">
+          <path d="M1 4v-1a2 2 0 0 1 2-2h4" />
+          <path d="M17 1h4a2 2 0 0 1 2 2v1" />
+          <path d="M23 17v4a2 2 0 0 1-2 2h-4" />
+          <path d="M7 23H3a2 2 0 0 1-2-2v-4" />
+          <line x1="1" y1="12" x2="23" y2="12" />
+        </svg>
+        <span class="nav-label">Scan</span>
+      </div>
+      <div class="nav-item nav-sos" data-tab="sos" onclick="navSOS(this)">
+        <svg viewBox="0 0 24 24">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+        </svg>
+        <span class="nav-label">SOS</span>
+      </div>
+      <div class="nav-item" data-tab="ai" onclick="switchTab(this)">
+        <svg viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="3" />
+          <path
+            d="M12 1v4m0 14v4M4.22 4.22l2.83 2.83m9.9 9.9l2.83 2.83M1 12h4m14 0h4M4.22 19.78l2.83-2.83m9.9-9.9l2.83-2.83"
+          />
+        </svg>
+        <span class="nav-label">AI</span>
+      </div>
+      <div class="nav-item" data-tab="settings" onclick="switchTab(this)">
+        <svg viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="3" />
+          <path
+            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
+          />
+        </svg>
+        <span class="nav-label">Settings</span>
+      </div>
+    </nav>
+
+    <div class="modal-overlay" id="modalOverlay" onclick="closeModal()"></div>
+    <div class="modal-panel" id="modalPanel">
+      <div class="modal-handle"></div>
+      <div class="modal-header">
+        <h2 id="modalTitle"></h2>
+        <p id="modalSubtitle"></p>
+      </div>
+      <div class="modal-body" id="modalBody"></div>
+    </div>
+
+    <!-- Chat and Map Scripts -->
+    <script>
+      let currentUser = "User";
+      window.VISION_AID_BACKEND_URL = "https://visionai-hig1.onrender.com";
+      window.getBackendUrl = function (path) {
+        const base = (window.VISION_AID_BACKEND_URL || "").replace(/\/$/, "");
+        if (!base) return path;
+        return base + (path.startsWith("/") ? path : `/${path}`);
+      };
+
+      const modules = [
+        {
+          id: "vision",
+          title: "Smart Vision Engine",
+          desc: "Real-time visual processing",
+          icon: '<svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>',
+          features: [
+            "Real-Time Object Detection",
+            "Obstacle Distance Estimation",
+            "Motion Tracking",
+            "Low-Light Mode",
+            "Hazard Detection",
+            "Custom Model Training",
+          ],
+        },
+        {
+          id: "mobility",
+          title: "Mobility Intelligence",
+          desc: "Navigation & spatial awareness",
+          icon: '<svg viewBox="0 0 24 24"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>',
+          features: [
+            "GPS Navigation",
+            "Turn-by-Turn Guidance",
+            "Nearby POI Finder",
+            "Crowd Density Meter",
+            "Route Preview Panel",
+            "ETA + Distance UI",
+          ],
+        },
+        {
+          id: "recognition",
+          title: "Visual Recognition Suite",
+          desc: "OCR, currency & face detection",
+          icon: '<svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>',
+          features: [
+            "OCR Scanner",
+            "Currency Recognition",
+            "Face Recognition",
+            "Color Detection",
+            "QR Scanner",
+          ],
+        },
+        {
+          id: "guardian",
+          title: "Guardian Safety System",
+          desc: "Emergency response & monitoring",
+          icon: '<svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
+          features: [
+            "Emergency SOS",
+            "Risk Level Indicator",
+            "Fall Detection Status",
+            "Battery Health Monitor",
+          ],
+        },
+        {
+          id: "companion",
+          title: "Hybrid AI Companion",
+          desc: "Context-aware conversational AI",
+          icon: '<svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>',
+          features: [
+            "Wake Word",
+            "Offline Mode",
+            "Cloud Mode",
+            "Memory Engine",
+            "Emotional Support Mode",
+          ],
+        },
+        {
+          id: "personalization",
+          title: "Adaptive Personalization",
+          desc: "Custom preferences & profiles",
+          icon: '<svg viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>',
+          features: [
+            "Alert Sensitivity",
+            "Speech Speed",
+            "Location Learning",
+            "Energy Saver Mode",
+            "User Profiles",
+          ],
+        },
+        {
+          id: "architecture",
+          title: "System Architecture",
+          desc: "Edge-cloud hybrid processing",
+          icon: '<svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>',
+          features: [
+            "Edge Processing",
+            "Mobile AI",
+            "Cloud Fallback",
+            "Dynamic Task Allocation",
+          ],
+        },
+        {
+          id: "future",
+          title: "Future Expansion",
+          desc: "Upcoming capabilities",
+          icon: '<svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
+          features: [
+            "Traffic Signal Detection",
+            "Public Transport Mode",
+            "Gesture Recognition",
+            "Smart Home Integration",
+            "Multi-language Support",
+          ],
+        },
+        {
+          id: "status",
+          title: "Device Status",
+          desc: "System health & diagnostics",
+          icon: '<svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>',
+          features: [
+            "CPU Usage",
+            "Memory Status",
+            "Network Latency",
+            "Sensor Health",
+            "Uptime Monitor",
+          ],
+        },
+      ];
+
+      const arrowSvg =
+        '<svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>';
+
+      const cardsGrid = document.getElementById("cardsGrid");
+      modules.forEach((m) => {
+        const card = document.createElement("div");
+        card.className = "module-card";
+        card.onclick = () => openModal(m.id);
+        const shortNames = {
+          vision: "Vision",
+          mobility: "Mobility",
+          recognition: "Recognition",
+          guardian: "Safety",
+          companion: "AI Chat",
+          personalization: "Settings",
+          architecture: "System",
+          future: "Expansion",
+          status: "Status",
+        };
+        card.innerHTML = `
+<div class="card-icon">${m.icon}</div>
+<div class="card-content">
+<div class="card-title">${shortNames[m.id] || m.title}</div>
+</div>
+`;
+        cardsGrid.appendChild(card);
+      });
+
+      let activeModal = null;
+      let modalIntervals = [];
+      let touchStartY = 0;
+
+      function openModal(id) {
+        const mod = modules.find((m) => m.id === id);
+        if (!mod) return;
+        activeModal = id;
+        document.getElementById("modalTitle").textContent = mod.title;
+        document.getElementById("modalSubtitle").textContent = mod.desc;
+        const body = document.getElementById("modalBody");
+        body.innerHTML = "";
+
+        // Feature list removed as requested 
+
+        if (id === "vision") body.innerHTML += buildVisionContent();
+        if (id === "mobility") body.innerHTML += buildMobilityContent();
+        if (id === "recognition") body.innerHTML += buildRecognitionContent();
+        if (id === "guardian") body.innerHTML += buildGuardianContent();
+        if (id === "companion") body.innerHTML += buildCompanionContent();
+        if (id === "personalization")
+          body.innerHTML += buildPersonalizationContent();
+        if (id === "architecture") body.innerHTML += buildArchitectureContent();
+        if (id === "future") body.innerHTML += buildFutureContent();
+        if (id === "status") body.innerHTML += buildStatusContent();
+
+        document.getElementById("modalOverlay").classList.add("active");
+        document.getElementById("modalPanel").classList.add("active");
+
+        setTimeout(() => initModalInteractions(id), 100);
+      }
+
+      function closeModal() {
+        document.getElementById("modalOverlay").classList.remove("active");
+        document.getElementById("modalPanel").classList.remove("active");
+        modalIntervals.forEach(clearInterval);
+        modalIntervals = [];
+
+        // Cancel any ongoing AI speech
+        if (window.speechSynthesis) {
+          window.speechSynthesis.__isCanceling = true;
+          window.speechSynthesis.cancel();
+          setTimeout(() => {
+            if (window.speechSynthesis) window.speechSynthesis.__isCanceling = false;
+          }, 300);
+        }
+
+        // Destroy MobilityMap if it was active
+        if (typeof MobilityMap !== 'undefined' && MobilityMap.isActive()) {
+          MobilityMap.destroy();
+        }
+        // Stop any active navigation voice
+        if (typeof NavigationController !== 'undefined' && NavigationController.isActive()) {
+          NavigationController.stopNavigation();
+        }
+        activeModal = null;
+      }
+
+      const panel = document.getElementById("modalPanel");
+      panel.addEventListener(
+        "touchstart",
+        (e) => {
+          touchStartY = e.touches[0].clientY;
+        },
+        { passive: true },
+      );
+      panel.addEventListener(
+        "touchmove",
+        (e) => {
+          const dy = e.touches[0].clientY - touchStartY;
+          if (dy > 80) closeModal();
+        },
+        { passive: true },
+      );
+
+      function buildVisionContent() {
+        return `
+<div class="modal-section">
+<div class="modal-section-title">Live Preview</div>
+<div class="live-preview">
+<div class="live-preview-grid"></div>
+<div class="live-preview-text">Camera Feed</div>
+</div>
+</div>
+<div class="modal-section">
+<div class="modal-section-title">Detection Log</div>
+<div class="detection-log" id="detectionLog"></div>
+</div>`;
+      }
+
+      function buildMobilityContent() {
+        return `
+<div class="modal-section">
+<div class="modal-section-title">Live Map</div>
+<div id="mobilityMapContainer"></div>
+<div class="mobility-nav-status" id="navStatus">Initializing map...</div>
+</div>
+<div class="modal-section">
+<div class="modal-section-title">Crowd Density</div>
+<div class="crowd-meter">
+<div class="meter-bar"><div class="meter-fill" id="crowdFill" style="width:35%"></div></div>
+<div class="meter-labels"><span>Low</span><span>Moderate</span><span>High</span></div>
+</div>
+</div>
+<div class="eta-panel">
+<div class="eta-card">
+<div class="eta-value" id="etaValue">--</div>
+<div class="eta-label">Min ETA</div>
+</div>
+<div class="eta-card">
+<div class="eta-value" id="distValue">--</div>
+<div class="eta-label">KM</div>
+</div>
+</div>`;
+      }
+
+      function buildRecognitionContent() {
+        return `
+<div class="modal-section">
+<div class="modal-section-title">Scanner</div>
+<div class="scan-area scan-paused" id="scanArea">
+<div class="scan-line"></div>
+<div class="scan-corners"></div>
+<div class="scan-corners-bottom"></div>
+<div class="live-preview-text" id="scanStatus">Tap Scan to Start</div>
+</div>
+<button class="scan-btn" id="scanBtn" onclick="toggleScan()">Start Scan</button>
+</div>
+<div class="modal-section">
+<div class="modal-section-title">Extracted Text</div>
+<div class="extracted-text" id="extractedText">Waiting for scan...</div>
+</div>`;
+      }
+
+      function buildGuardianContent() {
+        return `
+<div class="sos-container">
+<button class="sos-btn" onclick="triggerSOS(this)">SOS</button>
+<div style="font-size:11px;color:var(--muted)">Tap for Emergency Alert</div>
+</div>
+<div class="modal-section">
+<div class="modal-section-title">Risk Level</div>
+<div class="risk-meter">
+<div class="risk-bar"><div class="risk-fill" id="riskFill"></div></div>
+<div class="risk-label"><span>Low</span><span>Medium</span><span>Critical</span></div>
+</div>
+</div>
+<div class="modal-section">
+<div class="modal-section-title">Fall Detection</div>
+<div class="status-badge-inline">Active — No incidents detected</div>
+</div>
+<div class="modal-section">
+<div class="modal-section-title">Battery Health</div>
+<div class="battery-panel">
+<div class="battery-icon"><div class="battery-level" id="batteryLevel" style="width:78%"></div></div>
+<div>
+<div class="battery-text" id="batteryText">78%</div>
+<div class="battery-status">Estimated 5h 20m remaining</div>
+</div>
+</div>
+</div>`;
+      }
+
+      // ===== AI COMPANION STATE =====
+      const companionState = {
+        offlineMode: false,
+        cloudMode: true,
+        memoryEngine: true,
+        emotionalSupport: false,
+        isRecording: false,
+        isSpeaking: false,
+      };
+      let conversationHistory = [];
+      let userPreferences = [];
+
+      function loadMemory() {
+        try {
+          const saved = localStorage.getItem("visionaid_memory");
+          if (saved) {
+            const data = JSON.parse(saved);
+            conversationHistory = data.history || [];
+            userPreferences = data.preferences || [];
+          }
+        } catch (e) {
+          console.warn("Memory load failed:", e);
+        }
+      }
+      function saveMemory() {
+        if (!companionState.memoryEngine) return;
+        try {
+          localStorage.setItem(
+            "visionaid_memory",
+            JSON.stringify({
+              history: conversationHistory.slice(-30),
+              preferences: userPreferences,
+            }),
+          );
+        } catch (e) {}
+      }
+      loadMemory();
+
+      function getSystemPrompt() {
+        let prompt =
+          "You are the Vision AID assistant. Your job is to help visually impaired users navigate the application, explain features, provide guidance, and respond with clear, concise, accessible instructions.\n\nVision AID features include:\n- Smart Vision Engine: Real-time object detection, obstacle estimation, motion tracking\n- Mobility Intelligence: GPS navigation, turn-by-turn guidance, crowd density, POI finder\n- Visual Recognition: OCR scanning, currency recognition, face detection, QR scanner\n- Guardian Safety: Emergency SOS, fall detection, risk monitoring\n- AI Companion: This chat system with voice, wake word, offline and cloud modes\n- Personalization: Alert sensitivity, speech speed, haptic intensity, user profiles\n\nKeep responses concise and easy to understand. Use simple language.";
+        
+        const locName = (document.getElementById("widgetLocation") && document.getElementById("widgetLocation").textContent) || "Unknown location";
+        const coords = (document.getElementById("widgetCoords") && document.getElementById("widgetCoords").textContent) || "Unknown coordinates";
+        prompt += `\n\nContext - The user's current device location is: ${locName} (Coordinates: ${coords}). If the user asks where they are or for guidance, use this information.`;
+
+        if (companionState.emotionalSupport) {
+          prompt +=
+            '\n\nIMPORTANT - Emotional Support Mode is ON. You must:\n- Use warm, empathetic, and reassuring language\n- Be patient and gentle in all responses\n- Provide encouragement and emotional comfort\n- Acknowledge the user\'s feelings\n- Offer calm, step-by-step guidance\n- Use phrases like "I\'m here for you", "Take your time", "You\'re doing great"\n- Never rush the user or use curt responses';
+        }
+        if (userPreferences.length > 0) {
+          prompt +=
+            "\n\nUser preferences to remember:\n" +
+            userPreferences.map((p) => "- " + p).join("\n");
+        }
+        return prompt;
+      }
+
+      // ===== OFFLINE RESPONSES =====
+      const offlineResponses = {
+        greetings: {
+          patterns: ["hello", "hi", "hey", "good morning", "good evening"],
+          responses: [
+            "Hello! I'm your Vision AID companion. I'm currently in offline mode, but I can still help with basic tasks.",
+            "Hi there! I'm running offline right now. I can help you navigate the app and answer common questions.",
+          ],
+        },
+        vision: {
+          patterns: ["vision", "see", "detect", "object", "camera", "obstacle"],
+          responses: [
+            "The Smart Vision Engine provides real-time object detection, obstacle distance estimation, motion tracking, and hazard detection. Open the Vision module from the home screen to start.",
+          ],
+        },
+        mobility: {
+          patterns: [
+            "navigate",
+            "navigation",
+            "map",
+            "route",
+            "direction",
+            "gps",
+            "location",
+            "walk",
+          ],
+          responses: [
+            "The Mobility Intelligence module offers GPS navigation with turn-by-turn guidance, crowd density monitoring, and nearby places. Tap the Mobility card on the home screen.",
+          ],
+        },
+        recognition: {
+          patterns: [
+            "scan",
+            "ocr",
+            "read",
+            "text",
+            "currency",
+            "money",
+            "face",
+            "qr",
+            "barcode",
+          ],
+          responses: [
+            "The Recognition Suite can scan text (OCR), detect currency, recognize faces, identify colors, and read QR codes. Tap the Scan button in the bottom navigation bar.",
+          ],
+        },
+        safety: {
+          patterns: [
+            "sos",
+            "emergency",
+            "help me",
+            "fall",
+            "danger",
+            "safe",
+            "guardian",
+          ],
+          responses: [
+            "For emergencies, tap the SOS button in the bottom navigation. The Guardian Safety System monitors fall detection and risk levels.",
+          ],
+        },
+        settings: {
+          patterns: [
+            "setting",
+            "preference",
+            "speed",
+            "haptic",
+            "sensitivity",
+            "customize",
+            "volume",
+          ],
+          responses: [
+            "You can customize your experience in the Settings module: adjust alert sensitivity, speech speed, haptic intensity, enable energy saver mode, and manage user profiles.",
+          ],
+        },
+        companion: {
+          patterns: [
+            "ai",
+            "companion",
+            "chat",
+            "voice",
+            "wake",
+            "offline",
+            "cloud",
+            "memory",
+            "emotion",
+          ],
+          responses: [
+            "I'm your AI Companion! I support voice input (tap the mic), offline/cloud modes, conversation memory, and emotional support mode.",
+          ],
+        },
+        how: {
+          patterns: [
+            "how do i",
+            "how to",
+            "how can",
+            "what can",
+            "what do",
+            "what is",
+            "tell me",
+          ],
+          responses: [
+            "I can help you with the Vision AID app features. Try asking about specific modules like Vision, Mobility, Recognition, Safety, or Settings.",
+          ],
+        },
+        thanks: {
+          patterns: ["thank", "thanks", "appreciate"],
+          responses: [
+            "You're welcome! I'm always here to help. Feel free to ask anything else.",
+          ],
+        },
+        fallback: {
+          patterns: [],
+          responses: [
+            "I'm currently in offline mode with limited capabilities. I can help with basic navigation, feature explanations, and common tasks. For full conversational AI, please enable Cloud Mode.",
+            "I'm offline right now, so I can only assist with basic app guidance. Try asking about a specific Vision AID feature!",
+          ],
+        },
+      };
+      function getOfflineResponse(message) {
+        const lower = message.toLowerCase();
+        for (const [cat, data] of Object.entries(offlineResponses)) {
+          if (cat === "fallback") continue;
+          for (const p of data.patterns) {
+            if (lower.includes(p))
+              return data.responses[
+                Math.floor(Math.random() * data.responses.length)
+              ];
+          }
+        }
+        return offlineResponses.fallback.responses[
+          Math.floor(Math.random() * offlineResponses.fallback.responses.length)
+        ];
+      }
+
+      // ===== TTS =====
+      function speakText(text) {
+        if (!("speechSynthesis" in window)) return;
+        
+        // Let the system know this was a programmatic cancel, so onend doesn't trigger Mic
+        window.speechSynthesis.__isCanceling = true;
+        window.speechSynthesis.pause(); // Helps ensure immediate stop
+        window.speechSynthesis.cancel();
+        
+        setTimeout(() => {
+          window.speechSynthesis.__isCanceling = false;
+          const u = new SpeechSynthesisUtterance(text);
+          u.rate = 0.95;
+          u.pitch = 1.0;
+          u.volume = 1.0;
+          u.lang = "en-US";
+          companionState.isSpeaking = true;
+          u.onend = (e) => {
+            companionState.isSpeaking = false;
+            if (window.speechSynthesis.__isCanceling) return;
+          };
+          u.onerror = () => {
+            companionState.isSpeaking = false;
+          };
+          window.speechSynthesis.speak(u);
+        }, 50);
+      }
+
+      // ===== INJECT SOUND BLEEP =====
+      function playWakeSound() {
+        try {
+          const ctx = new (window.AudioContext || window.webkitAudioContext)();
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = "sine";
+          osc.frequency.setValueAtTime(600, ctx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(800, ctx.currentTime + 0.1);
+          gain.gain.setValueAtTime(0, ctx.currentTime);
+          gain.gain.linearRampToValueAtTime(0.2, ctx.currentTime + 0.05);
+          gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.3);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start();
+          osc.stop(ctx.currentTime + 0.3);
+        } catch (e) {}
+      }
+
+      // ===== COMMAND CAPTURE — delegates to VoiceAssistantController =====
+      function startCommandCapture() {
+        if (typeof VoiceAssistantController !== 'undefined') {
+          VoiceAssistantController.captureCommand();
+          companionState.isRecording = true;
+        }
+      }
+
+      // ===== VOICE INPUT — delegates to VoiceAssistantController =====
+      let speechRecognition = null; // kept for compat
+      function toggleVoiceInput() {
+        const controller =
+          typeof VoiceAssistantController !== "undefined"
+            ? VoiceAssistantController
+            : null;
+        if (!controller || typeof controller.captureCommand !== "function") {
+          addChatMessage(
+            "ai",
+            "Voice input is not supported in this browser. Please use Chrome or Edge.",
+          );
+          return;
+        }
+
+        if (controller.isRecording && controller.isRecording()) {
+          controller.stop();
+          companionState.isRecording = false;
+        } else {
+          controller.captureCommand();
+          companionState.isRecording = true;
+        }
+      }
+
+      function stopVoiceInput() {
+        companionState.isRecording = false;
+        if (typeof VoiceAssistantController !== 'undefined') VoiceAssistantController.stop();
+        const micBtn = document.getElementById('micBtn');
+        if (micBtn) micBtn.classList.remove('recording');
+      }
+
+      // ===== WAKE WORD — delegates to VoiceAssistantController =====
+      let wakeWordRecognition = null; // kept for compat
+      function startWakeWord() {
+        if (typeof VoiceAssistantController !== 'undefined') {
+          VoiceAssistantController.start();
+        }
+      }
+
+      function stopWakeWord() {
+        if (typeof VoiceAssistantController !== 'undefined') {
+          VoiceAssistantController.stop();
+        }
+      }
+
+      // ===== TOGGLE HANDLERS =====
+      function toggleCompanionFeature(feature, switchEl) {
+        companionState[feature] = !companionState[feature];
+        switchEl.classList.toggle("on", companionState[feature]);
+        if (feature === "offlineMode") {
+          if (companionState.offlineMode) {
+            companionState.cloudMode = false;
+            const cs = document.getElementById("cloudSwitch");
+            if (cs) cs.classList.remove("on");
+            addChatMessage(
+              "ai",
+              "📴 Offline mode enabled. Using local responses.",
+            );
+          } else addChatMessage("ai", "Offline mode disabled.");
+        }
+        if (feature === "cloudMode") {
+          if (companionState.cloudMode) {
+            companionState.offlineMode = false;
+            const os = document.getElementById("offlineSwitch");
+            if (os) os.classList.remove("on");
+            addChatMessage(
+              "ai",
+              "☁️ Cloud mode enabled. Full AI capabilities active.",
+            );
+          } else
+            addChatMessage(
+              "ai",
+              "Cloud mode disabled. Using offline responses.",
+            );
+        }
+        if (feature === "memoryEngine") {
+          if (companionState.memoryEngine)
+            addChatMessage(
+              "ai",
+              "🧠 Memory engine enabled. I'll remember our conversation.",
+            );
+          else {
+            addChatMessage("ai", "Memory disabled. History cleared.");
+            conversationHistory = [];
+            userPreferences = [];
+            localStorage.removeItem("visionaid_memory");
+          }
+        }
+        if (feature === "emotionalSupport") {
+          if (companionState.emotionalSupport)
+            addChatMessage(
+              "ai",
+              "💚 Emotional support mode enabled. I'm here for you — take your time.",
+            );
+          else addChatMessage("ai", "Emotional support mode disabled.");
+        }
+      }
+
+      // ===== BUILD COMPANION CONTENT =====
+      function buildCompanionContent() {
+        const feats = [
+          { key: "offlineMode", label: "Offline Mode", id: "offlineSwitch" },
+          { key: "cloudMode", label: "Cloud Mode", id: "cloudSwitch" },
+          { key: "memoryEngine", label: "Memory Engine", id: "memorySwitch" },
+          {
+            key: "emotionalSupport",
+            label: "Emotional Support Mode",
+            id: "emotionalSwitch",
+          },
+        ];
+        let tHTML = "";
+        feats.forEach((f) => {
+          const isOn = companionState[f.key];
+          tHTML +=
+            '<div class="feature-item" style="cursor:pointer;justify-content:space-between" onclick="toggleCompanionFeature(\'' +
+            f.key +
+            "', document.getElementById('" +
+            f.id +
+            "'))\">" +
+            '<div style="display:flex;align-items:center;gap:12px">' +
+            f.label +
+            "</div>" +
+            '<div class="toggle-switch' +
+            (isOn ? " on" : "") +
+            '" id="' +
+            f.id +
+            '" onclick="event.stopPropagation();toggleCompanionFeature(\'' +
+            f.key +
+            '\', this)"><div class="toggle-knob"></div></div></div>';
+        });
+        return (
+          '<div class="feature-list">' +
+          tHTML +
+          "</div>" +
+          '<div class="modal-section"><div class="modal-section-title">AI Chat</div>' +
+          '<div class="chat-container" id="chatContainer"><div class="chat-msg ai sys-msg">Hello! I\'m your Vision AID companion. How can I assist you today?<div class="chat-timestamp">' +
+          formatTimestamp() +
+          "</div></div></div>" +
+          '<div class="chat-input-row">' +
+          '<input class="chat-input" id="chatInput" placeholder="Type a message..." onkeydown="if(event.key===\'Enter\')sendChat()" aria-label="Type a message"/>' +
+          '<button class="chat-mic" id="micBtn" onclick="toggleVoiceInput()" aria-label="Voice input"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg></button>' +
+          '<button class="chat-send" onclick="sendChat()" aria-label="Send message"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>' +
+          "</div></div>"
+        );
+      }
+
+      // ===== CHAT HELPERS =====
+      function formatTimestamp() {
+        return new Date().toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+      }
+      function addChatMessage(role, text, dateObj = null) {
+        const c = document.getElementById("chatContainer");
+        if (!c) return;
+        const m = document.createElement("div");
+        m.className = "chat-msg " + role;
+        const d = document.createElement("div");
+        d.textContent = text;
+        m.appendChild(d);
+        const ts = document.createElement("div");
+        ts.className = "chat-timestamp";
+        
+        let timeStr = "";
+        if (dateObj instanceof Date && !isNaN(dateObj)) {
+          timeStr = dateObj.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        } else {
+          timeStr = formatTimestamp();
+        }
+        ts.textContent = timeStr;
+        
+        m.appendChild(ts);
+        c.appendChild(m);
+        c.scrollTop = c.scrollHeight;
+        return m;
+      }
+      function showTypingIndicator() {
+        const c = document.getElementById("chatContainer");
+        if (!c) return;
+        const t = document.createElement("div");
+        t.className = "typing-indicator";
+        t.id = "typingIndicator";
+        t.innerHTML = "<span></span><span></span><span></span>";
+        c.appendChild(t);
+        c.scrollTop = c.scrollHeight;
+      }
+      function removeTypingIndicator() {
+        const e = document.getElementById("typingIndicator");
+        if (e) e.remove();
+      }
+      function checkForMemoryCommand(msg) {
+        const lower = msg.toLowerCase();
+        const pats = [
+          "remember that",
+          "remember i",
+          "my preference",
+          "i prefer",
+          "i like",
+          "keep in mind",
+          "note that",
+        ];
+        for (const p of pats) {
+          if (lower.includes(p)) {
+            const pref = msg
+              .replace(/remember that|remember i|note that|keep in mind/gi, "")
+              .trim();
+            if (pref.length > 3) {
+              userPreferences.push(pref);
+              if (userPreferences.length > 10) userPreferences.shift();
+              saveMemory();
+              return true;
+            }
+          }
+        }
+        return false;
+      }
+
+      function buildPersonalizationContent() {
+        return `
+<div class="modal-section">
+<div class="toggle-row">
+<span class="toggle-label">Alert Sensitivity</span>
+<div class="toggle-switch on" onclick="toggleSwitch(this)"><div class="toggle-knob"></div></div>
+</div>
+<div class="toggle-row">
+<span class="toggle-label">Location Learning</span>
+<div class="toggle-switch" onclick="toggleSwitch(this)"><div class="toggle-knob"></div></div>
+</div>
+<div class="toggle-row">
+<span class="toggle-label">Energy Saver Mode</span>
+<div class="toggle-switch" onclick="toggleSwitch(this)"><div class="toggle-knob"></div></div>
+</div>
+<div class="slider-row">
+<div class="slider-header">
+<span class="slider-label">Speech Speed</span>
+<span class="slider-value" id="speechVal">1.0x</span>
+</div>
+<div class="slider-track" id="speechSlider">
+<div class="slider-fill" style="width:50%"></div>
+<div class="slider-thumb" style="left:50%"></div>
+</div>
+</div>
+<div class="slider-row">
+<div class="slider-header">
+<span class="slider-label">Haptic Intensity</span>
+<span class="slider-value" id="hapticVal">70%</span>
+</div>
+<div class="slider-track" id="hapticSlider">
+<div class="slider-fill" style="width:70%"></div>
+<div class="slider-thumb" style="left:70%"></div>
+</div>
+</div>
+</div>`;
+      }
+
+      function buildArchitectureContent() {
+        return `
+<div class="modal-section">
+<div class="modal-section-title">Processing Layers</div>
+<div class="arch-visual">
+<div class="arch-layer" style="width:60%;background:rgba(255,255,255,0.08)">
+<div><div class="layer-name">Cloud Layer</div><div class="layer-desc">Heavy ML inference</div></div>
+</div>
+<div class="arch-connector"><div class="data-flow-dot"></div></div>
+<div class="arch-layer" style="width:75%;background:rgba(255,255,255,0.06)">
+<div><div class="layer-name">Edge Layer</div><div class="layer-desc">Local processing node</div></div>
+</div>
+<div class="arch-connector"><div class="data-flow-dot"></div></div>
+<div class="arch-layer" style="width:90%;background:rgba(255,255,255,0.04)">
+<div><div class="layer-name">Device Layer</div><div class="layer-desc">On-device inference</div></div>
+</div>
+</div>
+</div>`;
+      }
+
+      function buildStatusContent() {
+        return `
+<div class="modal-section">
+<div class="modal-section-title">System Diagnostics</div>
+<div class="status-metrics">
+<div class="status-row"><span class="status-label">CPU Usage</span><div class="meter-bar"><div class="meter-fill" style="width:42%"></div></div><span class="status-val">42%</span></div>
+<div class="status-row"><span class="status-label">Memory</span><div class="meter-bar"><div class="meter-fill" style="width:67%"></div></div><span class="status-val">67%</span></div>
+<div class="status-row"><span class="status-label">Network</span><div class="meter-bar"><div class="meter-fill" style="width:28%"></div></div><span class="status-val">12ms</span></div>
+<div class="status-row"><span class="status-label">Sensors</span><div class="meter-bar"><div class="meter-fill" style="width:95%"></div></div><span class="status-val">Active</span></div>
+<div class="status-row"><span class="status-label">Uptime</span><div class="meter-bar"><div class="meter-fill" style="width:100%"></div></div><span class="status-val">4h 32m</span></div>
+</div>
+</div>`;
+      }
+
+      function buildFutureContent() {
+        return `
+<div class="modal-section">
+<div class="future-info">
+<p>Vision AID is continuously evolving. Our team is currently working on adding advanced capabilities to enhance your independence.</p>
+<div class="upcoming-list">
+  <div>• Traffic Signal Detection</div>
+  <div>• Public Transport Mode</div>
+  <div>• Gesture Recognition</div>
+  <div>• Smart Home Integration</div>
+</div>
+</div>
+</div>`;
+      }
+
+      function initModalInteractions(id) {
+        if (id === "vision") initVision();
+        if (id === "mobility") initMobility();
+        if (id === "guardian") initGuardian();
+        if (id === "personalization") initSliders();
+      }
+
+      const detectedObjects = [
+        "Person",
+        "Chair",
+        "Door",
+        "Table",
+        "Car",
+        "Bicycle",
+        "Crosswalk",
+        "Stairs",
+        "Dog",
+        "Traffic Light",
+        "Bench",
+        "Pole",
+        "Wall",
+        "Curb",
+        "Sign",
+      ];
+
+      function initVision() {
+        const log = document.getElementById("detectionLog");
+        if (!log) return;
+        function addEntry() {
+          if (!activeModal || activeModal !== "vision") return;
+          const obj =
+            detectedObjects[Math.floor(Math.random() * detectedObjects.length)];
+          const dist = (Math.random() * 8 + 0.5).toFixed(1);
+          const conf = (Math.random() * 30 + 70).toFixed(0);
+          const now = new Date();
+          const time = now.toTimeString().slice(0, 8);
+          const entry = document.createElement("div");
+          entry.className = "log-entry";
+          entry.innerHTML = `<span class="log-time">${time}</span><span>${obj} detected — ${dist}m — ${conf}%</span>`;
+          log.prepend(entry);
+          if (log.children.length > 8) log.removeChild(log.lastChild);
+        }
+        addEntry();
+        const iv = setInterval(addEntry, 2000);
+        modalIntervals.push(iv);
+      }
+
+      function initMobility() {
+        // Initialize the live Leaflet map in the mobility modal
+        if (typeof MobilityMap !== 'undefined') {
+          MobilityMap.init('mobilityMapContainer');
+          const ns = document.getElementById('navStatus');
+          if (ns) {
+            ns.textContent = 'Map loaded. Use AI Chat to navigate (e.g. "Guide me to Central Park")';
+            ns.classList.add('active');
+          }
+        }
+      }
+
+      let scanActive = false;
+      function toggleScan() {
+        scanActive = !scanActive;
+        const area = document.getElementById("scanArea");
+        const btn = document.getElementById("scanBtn");
+        const status = document.getElementById("scanStatus");
+        const text = document.getElementById("extractedText");
+        if (scanActive) {
+          area.classList.remove("scan-paused");
+          area.classList.add("scan-active");
+          btn.textContent = "Stop Scan";
+          status.textContent = "Scanning...";
+          const sampleTexts = [
+            "Welcome to Vision AID\nPowered by hybrid AI",
+            "EXIT →\nFloor 2 — Conference Room B",
+            "CAUTION\nWet Floor Ahead",
+            "Menu — Daily Special\nCoffee $4.50 | Tea $3.00",
+            "Bus Route 42\nNext departure: 3 min",
+          ];
+          setTimeout(() => {
+            if (scanActive && text) {
+              text.textContent =
+                sampleTexts[Math.floor(Math.random() * sampleTexts.length)];
+            }
+          }, 2500);
+        } else {
+          area.classList.add("scan-paused");
+          area.classList.remove("scan-active");
+          btn.textContent = "Start Scan";
+          status.textContent = "Tap Scan to Start";
+        }
+      }
+
+      function triggerSOS(btn) {
+        btn.style.background = "rgba(255,255,255,0.2)";
+        btn.textContent = "SENT";
+        setTimeout(() => {
+          btn.style.background = "";
+          btn.textContent = "SOS";
+        }, 2000);
+      }
+
+      function initGuardian() {
+        function update() {
+          if (!activeModal || activeModal !== "guardian") return;
+          const risk = Math.floor(Math.random() * 40 + 5);
+          const rf = document.getElementById("riskFill");
+          if (rf) rf.style.width = risk + "%";
+          const bat = Math.max(10, Math.floor(Math.random() * 90 + 10));
+          const bl = document.getElementById("batteryLevel");
+          const bt = document.getElementById("batteryText");
+          if (bl) bl.style.width = bat + "%";
+          if (bt) bt.textContent = bat + "%";
+        }
+        update();
+        const iv = setInterval(update, 4000);
+        modalIntervals.push(iv);
+      }
+
+      // ===== MAIN SEND CHAT =====
+      async function sendChat() {
+        const input = document.getElementById("chatInput");
+        const container = document.getElementById("chatContainer");
+        if (!input || !container) return;
+        const msg = input.value.trim();
+        if (!msg) return;
+        input.value = "";
+        addChatMessage("user", msg);
+        conversationHistory.push({ role: "user", text: msg });
+        checkForMemoryCommand(msg);
+
+        // ===== FULL INTENT ROUTING via RouterEngine =====
+        if (typeof RouterEngine !== 'undefined') {
+          RouterEngine.dispatch(msg);
+          return;
+        }
+        
+        // Fallbacks if RouterEngine fails to load
+        if (typeof AIIntentParser !== 'undefined' && AIIntentParser.processMessage(msg)) {
+          conversationHistory.push({ role: 'model', text: '🗺️ Opening navigation...' });
+          saveMemory();
+          return;
+        }
+
+        processGeneralChat(msg);
+      }
+
+      async function processGeneralChat(msg) {
+        const container = document.getElementById("chatContainer");
+        const useCloud = companionState.cloudMode && !companionState.offlineMode;
+        if (!useCloud) {
+          showTypingIndicator();
+          await new Promise((r) => setTimeout(r, 600 + Math.random() * 800));
+          removeTypingIndicator();
+          const response = getOfflineResponse(msg);
+          addChatMessage("ai", response);
+          conversationHistory.push({ role: "model", text: response });
+          speakText(response);
+          saveMemory();
+          return;
+        }
+        showTypingIndicator();
+        try {
+          const historyForAPI = companionState.memoryEngine
+            ? conversationHistory
+                .slice(-20)
+                .filter((h) => h.role === "user" || h.role === "model")
+            : [];
+
+          // ── 12-second hard timeout — if NVIDIA hangs, fail fast ──
+          if (window.currentChatAbortCtrl) {
+            try { window.currentChatAbortCtrl.abort(); } catch(e) {}
+          }
+          const abortCtrl = new AbortController();
+          window.currentChatAbortCtrl = abortCtrl;
+          const chatTimer = setTimeout(() => abortCtrl.abort(), 12000);
+
+          const response = await fetch(getBackendUrl("/api/ai/chat"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              message: msg,
+              history: historyForAPI.slice(0, -1),
+              username: currentUser,
+              systemPrompt: getSystemPrompt(),
+              username: currentUser,
+            }),
+            signal: abortCtrl.signal,
+          });
+          clearTimeout(chatTimer);
+
+          removeTypingIndicator();
+          if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            const fallback =
+              errData.fallback ||
+              "I'm having trouble connecting. Please try again or switch to Offline Mode.";
+            addChatMessage("ai", fallback);
+            speakText(fallback);
+            return;
+          }
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let fullResponse = "";
+          const aiMsg = document.createElement("div");
+          aiMsg.className = "chat-msg ai";
+          aiMsg.innerHTML = '<span class="ai-response-text"></span>';
+          container.appendChild(aiMsg);
+
+          // ── Per-chunk timeout: if the stream stalls mid-way, abort ──
+          let chunkTimer;
+          const resetChunkTimer = () => {
+            clearTimeout(chunkTimer);
+            chunkTimer = setTimeout(() => abortCtrl.abort(), 10000);
+          };
+          resetChunkTimer();
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            clearTimeout(chunkTimer);
+            const chunk = decoder.decode(value, { stream: true });
+            fullResponse += chunk;
+            const textSpan = aiMsg.querySelector(".ai-response-text");
+            if (textSpan) textSpan.textContent = fullResponse;
+            container.scrollTop = container.scrollHeight;
+            resetChunkTimer();
+          }
+          clearTimeout(chunkTimer);
+
+          if (!fullResponse.trim()) {
+            // Stream opened but sent nothing
+            aiMsg.remove();
+            throw new Error('empty stream');
+          }
+
+          const ts = document.createElement("div");
+          ts.className = "chat-timestamp";
+          ts.textContent = formatTimestamp();
+          aiMsg.appendChild(ts);
+          conversationHistory.push({ role: "model", text: fullResponse });
+          saveMemory();
+          speakText(fullResponse);
+        } catch (error) {
+          removeTypingIndicator();
+          const isTimeout = error.name === 'AbortError' || error.message === 'empty stream';
+          console.error("Chat error:", error);
+          const fallback = isTimeout
+            ? "⏱️ The AI took too long to respond. This usually means the cloud API is busy or rate-limited. Try switching to Offline Mode for instant responses."
+            : "⚠️ I'm having trouble connecting to my AI brain. Please try again, or switch to Offline Mode.";
+          addChatMessage("ai", fallback);
+          conversationHistory.push({ role: "model", text: fallback });
+          speakText(fallback);
+          saveMemory();
+        }
+      }
+
+
+      function toggleSwitch(el) {
+        el.classList.toggle("on");
+      }
+
+      function initSliders() {
+        document.querySelectorAll(".slider-track").forEach((track) => {
+          const fill = track.querySelector(".slider-fill");
+          const thumb = track.querySelector(".slider-thumb");
+          const isSpeed = track.id === "speechSlider";
+
+          function updateSlider(x) {
+            const rect = track.getBoundingClientRect();
+            let pct = Math.max(0, Math.min(1, (x - rect.left) / rect.width));
+            fill.style.width = pct * 100 + "%";
+            thumb.style.left = pct * 100 + "%";
+            if (isSpeed) {
+              const val = (0.5 + pct * 1.5).toFixed(1);
+              const sv = document.getElementById("speechVal");
+              if (sv) sv.textContent = val + "x";
+            } else {
+              const val = Math.round(pct * 100);
+              const hv = document.getElementById("hapticVal");
+              if (hv) hv.textContent = val + "%";
+            }
+          }
+
+          track.addEventListener(
+            "touchstart",
+            (e) => {
+              e.preventDefault();
+              updateSlider(e.touches[0].clientX);
+            },
+            { passive: false },
+          );
+
+          track.addEventListener(
+            "touchmove",
+            (e) => {
+              e.preventDefault();
+              updateSlider(e.touches[0].clientX);
+            },
+            { passive: false },
+          );
+
+          track.addEventListener("mousedown", (e) => {
+            updateSlider(e.clientX);
+            const move = (ev) => updateSlider(ev.clientX);
+            const up = () => {
+              document.removeEventListener("mousemove", move);
+              document.removeEventListener("mouseup", up);
+            };
+            document.addEventListener("mousemove", move);
+            document.addEventListener("mouseup", up);
+          });
+        });
+      }
+
+      function switchTab(el) {
+        document
+          .querySelectorAll(".nav-item")
+          .forEach((n) => n.classList.remove("active"));
+        el.classList.add("active");
+        const tab = el.dataset.tab;
+        if (tab === "scan") openModal("recognition");
+        else if (tab === "ai") openModal("companion");
+        else if (tab === "settings") openModal("personalization");
+      }
+
+      const logMessages = [
+        "Neural engine initialized",
+        "Edge processors online",
+        "Object model loaded (v3.2)",
+        "GPS signal acquired",
+        "Cloud sync complete",
+        "Battery optimization active",
+        "Haptic feedback calibrated",
+        "Voice engine ready",
+        "Safety protocols engaged",
+        "Sensor fusion active",
+      ];
+
+      let logIndex = 0;
+      function showSystemLog() {
+        const container = document.getElementById("systemLog");
+        const toast = document.createElement("div");
+        toast.className = "log-toast";
+        const now = new Date();
+        const time = now.toTimeString().slice(0, 8);
+        toast.textContent = `[${time}] ${logMessages[logIndex % logMessages.length]}`;
+        container.appendChild(toast);
+        logIndex++;
+        setTimeout(() => toast.remove(), 3200);
+      }
+
+      setInterval(showSystemLog, 5000);
+      setTimeout(showSystemLog, 1500);
+
+      const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+      const months = [
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
+      ];
+      function updateTopBar() {
+        const now = new Date();
+        const h = now.getHours().toString().padStart(2, "0");
+        const m = now.getMinutes().toString().padStart(2, "0");
+        const s = now.getSeconds().toString().padStart(2, "0");
+        document.getElementById("widgetTime").textContent = h + ":" + m;
+        const sec = document.getElementById("widgetSec");
+        if (sec) sec.textContent = s;
+        const dateEl = document.getElementById("widgetDate");
+        if (dateEl)
+          dateEl.textContent =
+            days[now.getDay()] +
+            ", " +
+            now.getDate() +
+            " " +
+            months[now.getMonth()] +
+            " " +
+            now.getFullYear();
+      }
+      updateTopBar();
+      setInterval(updateTopBar, 1000);
+
+      async function updateBattery() {
+        if (navigator.getBattery) {
+          const battery = await navigator.getBattery();
+          const updateUI = () => {
+            const level = Math.round(battery.level * 100);
+            document.getElementById("widgetBattery").textContent = level;
+            const bar = document.getElementById("batteryBar");
+            if (bar) bar.style.width = level + "%";
+          };
+          updateUI();
+          battery.addEventListener("levelchange", updateUI);
+        } else {
+          document.getElementById("widgetBattery").textContent = "N/A";
+        }
+      }
+      updateBattery();
+
+      async function fallbackLocation() {
+        try {
+          const res = await fetch("https://get.geojs.io/v1/ip/geo.json");
+          const data = await res.json();
+          document.getElementById("widgetLocation").textContent = data.city || data.region || "Current Location";
+          document.getElementById("widgetCoords").textContent = parseFloat(data.latitude).toFixed(4) + "°N " + parseFloat(data.longitude).toFixed(4) + "°E";
+        } catch (e) {
+          document.getElementById("widgetLocation").textContent = "Location Off";
+          document.getElementById("widgetCoords").textContent = "--°N --°E";
+        }
+      }
+
+      function updateLocation() {
+        if ("geolocation" in navigator) {
+          let wResolved = false;
+          const wTimer = setTimeout(() => {
+            if (!wResolved) {
+              wResolved = true;
+              fallbackLocation();
+            }
+          }, 10000);
+
+          navigator.geolocation.getCurrentPosition(
+            async (position) => {
+              if (!wResolved) {
+                wResolved = true;
+                clearTimeout(wTimer);
+                const lat = position.coords.latitude;
+                const lng = position.coords.longitude;
+                document.getElementById("widgetCoords").textContent =
+                  lat.toFixed(4) + "°N " + lng.toFixed(4) + "°E";
+                
+                try {
+                  const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`, {
+                    headers: { 'User-Agent': 'VisionAID-Demo/1.0' }
+                  });
+                  const data = await res.json();
+                  let placeName = "Current Location";
+                  if (data && data.address) {
+                    const a = data.address;
+                    placeName =
+                      a.neighbourhood || a.suburb || a.quarter ||
+                      a.residential   || a.village || a.town   ||
+                      a.city          || a.county  || "Current Location";
+                  }
+                  document.getElementById("widgetLocation").textContent = placeName;
+                } catch (e) {
+                  document.getElementById("widgetLocation").textContent =
+                    "Current Location";
+                }
+              }
+            },
+            (error) => {
+              if (!wResolved) {
+                wResolved = true;
+                clearTimeout(wTimer);
+                fallbackLocation();
+              }
+            },
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+          );
+        } else {
+          fallbackLocation();
+        }
+      }
+      updateLocation();
+      setInterval(updateLocation, 30000);
+
+      function updateLatency() {
+        if (
+          navigator.connection &&
+          typeof navigator.connection.rtt === "number"
+        ) {
+          const ms = navigator.connection.rtt;
+          const el = document.getElementById("widgetLatency");
+          if (el) el.textContent = ms + "ms";
+          const bars = document.querySelectorAll(".signal-bar");
+          const strength = ms < 50 ? 4 : ms < 100 ? 3 : ms < 200 ? 2 : 1;
+          bars.forEach((b, i) => b.classList.toggle("active", i < strength));
+        } else {
+          const el = document.getElementById("widgetLatency");
+          if (el) el.textContent = "---ms";
+        }
+      }
+      updateLatency();
+      if (navigator.connection) {
+        navigator.connection.addEventListener("change", updateLatency);
+      }
+      setInterval(updateLatency, 5000);
+
+      function updateSensors() {
+let count = 0;
+if ("geolocation" in navigator) count++;
+if (window.DeviceMotionEvent) count++;
+if (window.DeviceOrientationEvent) count++;
+if ("speechSynthesis" in window) count++;
+const updateUI = (c) => {
+const st = document.getElementById('widgetSensors');
+const sc = document.getElementById('sensorCount');
+if(st) st.textContent = c > 0 ? 'Active' : 'Inactive';
+if(sc) sc.textContent = c + ' modules online';
+};
+if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+navigator.mediaDevices.enumerateDevices().then(devices => {
+if (devices.some(d => d.kind === 'videoinput')) count++;
+if (devices.some(d => d.kind === 'audioinput')) count++;
+updateUI(count);
+}).catch(() => updateUI(count));
+} else {
+updateUI(count);
+}
+}
+updateSensors();
+
+function navSOS(el) {
+        el.classList.add("sos-triggered");
+        const label = el.querySelector(".nav-label");
+        label.textContent = "SENT!";
+        setTimeout(() => {
+          el.classList.remove("sos-triggered");
+          label.textContent = "SOS";
+        }, 2500);
+      }
+
+      // ===== SYSTEM BOOT — initialize state on page load =====
+
+      // Load History Helper
+      async function loadChatHistory() {
+        if (!currentUser) return;
+        try {
+          const histResp = await fetch(getBackendUrl(`/api/history?username=${encodeURIComponent(currentUser)}`));
+          if (histResp.ok) {
+            const history = await histResp.json();
+            
+            // clear the chat container but keep the first system message
+            let hContainer = document.getElementById('chatContainer'); 
+            if(hContainer) { 
+               const msgs = hContainer.querySelectorAll('.chat-msg:not(.sys-msg)'); 
+               msgs.forEach(m=>m.remove()); 
+            }
+            
+            // reset memory
+            if (typeof conversationHistory !== 'undefined') conversationHistory = [];
+
+            if (Array.isArray(history)) {
+              history.forEach(msg => {
+                if (msg.role && msg.content) {
+                  const uiRole = msg.role === 'assistant' ? 'ai' : msg.role;
+                  addChatMessage(uiRole, msg.content, new Date(msg.created_at));
+                  
+                  if (typeof conversationHistory !== 'undefined') {
+                    const histRole = msg.role === 'assistant' ? 'model' : msg.role;
+                    conversationHistory.push({ role: histRole, text: msg.content });
+                  }
+                }
+              });
+            }
+            
+            // scroll down
+            const container = document.getElementById("chatContainer");
+            if (container) container.scrollTop = container.scrollHeight;
+          }
+        } catch (err) {
+          console.error('[VisionAID] Failed to load history:', err);
+        }
+      }
+
+      window.addEventListener('DOMContentLoaded', async () => {
+        console.log('[VisionAID] App initialized. Tap mic button to begin voice input if needed.');
+        loadChatHistory();
+      });
+    </script>
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Leaflet Routing Machine -->
+    <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
+    <!-- Vision AID Core Modules (load order matters) -->
+    <script src="js/VoiceGuide.js"></script>
+    <script src="js/MobilityMap.js"></script>
+    <script src="js/NavigationController.js"></script>
+    <script src="js/AIIntentParser.js"></script>
+    <!-- Vision AID Intelligence Pipeline -->
+    <script src="js/AIIntentClassifier.js"></script>
+    <script src="js/VisionController.js"></script>
+    <script src="js/RouterEngine.js"></script>
+    <script src="js/VoiceAssistantController.js"></script>
+  </body>
+</html>
