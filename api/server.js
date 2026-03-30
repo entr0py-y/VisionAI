@@ -495,9 +495,12 @@ app.post('/api/pi/audio-input', express.raw({ type: 'application/octet-stream', 
       message: "Success"
     });
 
-  } catch (err) {
-    console.error('Pi audio-input error:', err.message);
-    // Return early to prevent timeout
+  } catch (error) {
+    console.error('[ERROR] Audio processing failed:', error);
+    if (hardwareAudioDeferredResponse) {
+      hardwareAudioDeferredResponse.status(500).json({ error: "Backend internal error during audio processing.", transcript: "Processing crash on Render." });
+      hardwareAudioDeferredResponse = null;
+    }
     if (!res.headersSent) {
       res.status(500).json({ error: 'Audio processing failed' });
     }
