@@ -157,8 +157,26 @@ const VoiceAssistantController = (() => {
     setMicUI(true); // Spin the mic UI while waiting for ESP32
     
     if (typeof addChatMessage === "function") {
-      addChatMessage("system", "ESP32 Hardware Mic Triggered. Speak now!");
+      addChatMessage("ai", "📡 Contacting ESP32 Mic...");
     }
+
+    // Ping Backend every 150ms until ESP32 physically starts I2S loop
+    let listeningPoll = setInterval(async () => {
+      if (!isRecordingState) {
+        clearInterval(listeningPoll);
+        return;
+      }
+      try {
+        const ping = await fetch(getBackendUrl('/api/pi/listening-status'));
+        const pingData = await ping.json();
+        if (pingData.listening) {
+          addChatMessage("system", "🟢 LISTENING NOW! Speak for 3 seconds...");
+          clearInterval(listeningPoll);
+        }
+      } catch (e) {
+        // silently fail polling
+      }
+    }, 150);
 
     try {
       // Tell the backend to command the ESP32 to record, and Wait for the reply!

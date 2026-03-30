@@ -574,32 +574,45 @@ app.post('/api/pi/audio-output', async (req, res) => {
 
 // ─── HARDWARE / WEBPAGE SYNC STATE ───────────────────────────────────────────
 let hardwareRecordingRequest = false;
+let hardwareIsCurrentlyListening = false;
 let hardwareAudioDeferredResponse = null;
 
 let hardwareCameraRequest = false;
 let hardwareCameraDeferredResponse = null;
 let hardwareCameraPrompt = '';
 
+// 3. Status Poll Endpoint (Pi checks this every second)
 app.get('/api/pi/status', (req, res) => {
-  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-  res.setHeader('Pragma', 'no-cache');
-  res.setHeader('Expires', '0');
-  res.setHeader('Surrogate-Control', 'no-store');
+  // We use this endpoint for BOTH camera and mic polling to avoid two separate intervals.
+  let action = 'IDLE';
 
-  if (hardwareRecordingRequest) {
-     console.log('[DEBUG] ESP32 polled status: SENDING RECORD FLAG!');
-     return res.json({ action: "RECORD" });
+  if (hardwareRecordingRequest && req.query.t) {
+    action = 'RECORD';
+    // The ESP32 physically just retrieved the RECORD command, meaning it is starting to record!
+    hardwareIsCurrentlyListening = true;
+  } else if (hardwareCameraRequest) {
+    action = 'CAPTURE_IMAGE';
   }
-  if (hardwareCameraRequest) {
-     console.log('[DEBUG] ESP32 polled status: SENDING CAPTURE_IMAGE FLAG!');
-     return res.json({ action: "CAPTURE_IMAGE" });
-  }
-  return res.json({ action: "IDLE" });
+
+  res.json({ action });
+});
+
+// NEW: Polling Endpoint for Frontend to track if Pi is actively recording
+app.get('/api/pi/listening-status', (req, res) => {
+  res.json({ listening: hardwareIsCurrentlyListening });
 });
 
 app.post('/api/pi/trigger-hardware-mic', (req, res) => {
-  console.log('[DEBUG] WEB UI triggering hardware mic request!');
+  console.log('[API] Hardware Mic Triggered. Waiting for PI POST...');
+  
+  if (hardwareRecordingRequest) {
+    if (hardwareAudioDeferredResponse) {
+      hardwareAudioDeferredResponse.status(409).json({ error: 'Already waiting for an existing mic request.' });
+    }
+  }
+
   hardwareRecordingRequest = true;
+  hardwareIsCurrentlyListening = false; // Set to false until ESP32 acknowledges
   hardwareAudioDeferredResponse = res; // Hold the connection open!
   
   // If the ESP is off or ignoring us, timeout after 15 seconds so we don't hang the webpage forever
@@ -607,6 +620,7 @@ app.post('/api/pi/trigger-hardware-mic', (req, res) => {
      if (hardwareAudioDeferredResponse === res) {
          hardwareAudioDeferredResponse.status(504).json({ error: "ESP32 did not respond in time.", transcript: "Hardware Timeout" });
          hardwareAudioDeferredResponse = null;
+         hardwareIsCurrentlyListening = false;
      }
   }, 45000); 
 });
