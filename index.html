@@ -3313,5 +3313,29 @@ function navSOS(el) {
     <script src="js/VisionController.js"></script>
     <script src="js/RouterEngine.js"></script>
     <script src="js/VoiceAssistantController.js"></script>
+    <!-- REAL-TIME GHOST CLICK PIPELINE (Physical Module To DOM Sink) -->
+    <script>
+      document.addEventListener("DOMContentLoaded", () => {
+         const backendUrl = localStorage.getItem("visionAidBackendUrl") || "https://visionai-hig1.onrender.com";
+         try {
+           const sse = new EventSource(`${backendUrl}/api/stream`);
+           sse.onmessage = (event) => {
+             const data = JSON.parse(event.data);
+             if (data.event === "HARDWARE_BTN_TOUCHED") {
+               const micBtn = document.getElementById('micBtn');
+               if (micBtn) {
+                 console.log("[GhostClick] ESP32 ordered a remote UI Click!");
+                 micBtn.click();
+               }
+             }
+           };
+           sse.onerror = (e) => {
+             console.log("[GhostClick] SSE Stream Reconnecting...");
+           };
+         } catch(e) {
+           console.log("Failed to map SSE pipeline.");
+         }
+      });
+    </script>
   </body>
 </html>

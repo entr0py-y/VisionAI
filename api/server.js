@@ -567,6 +567,10 @@ app.post('/api/pi/audio-output', async (req, res) => {
   }
 });
 
+// =========================================================================
+// HARDWARE POLLING ROUTES
+// =========================================================================
+
 // ─── HARDWARE / WEBPAGE SYNC STATE ───────────────────────────────────────────
 let hardwareRecordingRequest = false;
 let hardwareIsCurrentlyListening = false;
@@ -575,6 +579,30 @@ let hardwareAudioDeferredResponse = null;
 let hardwareCameraRequest = false;
 let hardwareCameraDeferredResponse = null;
 let hardwareCameraPrompt = '';
+
+// ─── SSE ROUTER FOR GHOST-CLICK (Physical Button -> Website Sync) ───
+let streamClients = [];
+
+app.get('/api/stream', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders(); 
+
+  streamClients.push(res);
+
+  req.on('close', () => {
+    streamClients = streamClients.filter(c => c !== res);
+  });
+});
+
+app.post('/api/pi/button-pressed', (req, res) => {
+  console.log('[API] ESP32 Physical Button Touched! Alerting Website UI via SSE Streams...');
+  streamClients.forEach(client => {
+    client.write(`data: {"event": "HARDWARE_BTN_TOUCHED"}\n\n`);
+  });
+  res.json({ success: true });
+});
 
 // 3. Status Poll Endpoint (Pi checks this every second)
 app.get('/api/pi/status', (req, res) => {

@@ -21,6 +21,11 @@ const int serverPort = 443;
 #define I2S_SD 33
 #define I2S_PORT I2S_NUM_0
 
+// ===========================
+// EXTERNAL TOUCH BUTTON
+// ===========================
+#define TOUCH_PIN 13
+
 void setup() {
   Serial.begin(115200);
   Serial.println("Starting ESP32 Mic...");
@@ -64,6 +69,9 @@ void setup() {
   i2s_set_pin(I2S_PORT, &pin_config);
   i2s_zero_dma_buffer(I2S_PORT);
   Serial.println("I2S Mic initialized.");
+
+  // Initialize Physics Touch Button
+  pinMode(TOUCH_PIN, INPUT);
 }
 
 WiFiClientSecure persistentStatusClient;
@@ -73,6 +81,23 @@ void loop() {
   if (WiFi.status() != WL_CONNECTED) {
     delay(1000);
     return;
+  }
+
+  // Check Physical Touch Sensor Fast Path
+  if (digitalRead(TOUCH_PIN) == HIGH) {
+    Serial.println("\n[EVENT] Physical Touch Detected! Alerting Website...");
+    
+    // Quick HTTPS ping to the backend SSE Router
+    HTTPClient httpBtn;
+    String pingUrl = String("https://") + serverIp + "/api/pi/button-pressed";
+    httpBtn.begin(persistentStatusClient, pingUrl);
+    int code = httpBtn.POST("");
+    httpBtn.end();
+    
+    Serial.printf("Server Ping Result: %d\n", code);
+    
+    // Prevent physical button double-clicking / bounces
+    delay(1000); 
   }
 
   // Initialize Persistent SSL Context once to avoid 2-second computational delays every poll
