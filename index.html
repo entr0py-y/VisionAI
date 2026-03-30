@@ -1875,7 +1875,8 @@
     <!-- Chat and Map Scripts -->
     <script>
       let currentUser = "User";
-      window.VISION_AID_BACKEND_URL = "https://visionai-hig1.onrender.com";
+      const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.hostname.startsWith("192.168.");
+      window.VISION_AID_BACKEND_URL = isLocal ? "" : "https://visionai-hig1.onrender.com";
       window.getBackendUrl = function (path) {
         const base = (window.VISION_AID_BACKEND_URL || "").replace(/\/$/, "");
         if (!base) return path;
@@ -2893,7 +2894,7 @@
           }
           const abortCtrl = new AbortController();
           window.currentChatAbortCtrl = abortCtrl;
-          const chatTimer = setTimeout(() => abortCtrl.abort(), 12000);
+          const chatTimer = setTimeout(() => abortCtrl.abort(), 30000);
 
           const response = await fetch(getBackendUrl("/api/ai/chat"), {
             method: "POST",
@@ -2931,7 +2932,7 @@
           let chunkTimer;
           const resetChunkTimer = () => {
             clearTimeout(chunkTimer);
-            chunkTimer = setTimeout(() => abortCtrl.abort(), 10000);
+            chunkTimer = setTimeout(() => abortCtrl.abort(), 20000);
           };
           resetChunkTimer();
 
@@ -3093,7 +3094,8 @@
         const h = now.getHours().toString().padStart(2, "0");
         const m = now.getMinutes().toString().padStart(2, "0");
         const s = now.getSeconds().toString().padStart(2, "0");
-        document.getElementById("widgetTime").textContent = h + ":" + m;
+        const wt = document.getElementById("widgetTime");
+        if (wt) wt.textContent = h + ":" + m;
         const sec = document.getElementById("widgetSec");
         if (sec) sec.textContent = s;
         const dateEl = document.getElementById("widgetDate");
@@ -3160,9 +3162,7 @@
                   lat.toFixed(4) + "°N " + lng.toFixed(4) + "°E";
                 
                 try {
-                  const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`, {
-                    headers: { 'User-Agent': 'VisionAID-Demo/1.0' }
-                  });
+                  const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
                   const data = await res.json();
                   let placeName = "Current Location";
                   if (data && data.address) {

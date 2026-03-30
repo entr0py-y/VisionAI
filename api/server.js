@@ -1,4 +1,6 @@
 require('dotenv').config();
+const dns = require('dns');
+dns.setDefaultResultOrder('ipv4first');
 const express  = require('express');
 const cors     = require('cors');
 const OpenAI   = require('openai');
@@ -22,20 +24,20 @@ const _p3 = "OCNWtz4OqsTA_lAURNJ";
 const _p4 = "t8edt_dRjqd3pW6htAYnc7_";
 const HARDCODED_KEY = _p1 + _p2 + _p3 + _p4;
 
-// ─── NVIDIA / OpenAI-compatible client ───────────────────────────────────────
+// ─── Groq / OpenAI-compatible client ───────────────────────────────────────
 const client = new OpenAI({
-  baseURL: process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1',
-  apiKey:  process.env.NVIDIA_API_KEY || process.env.OPENAI_API_KEY || HARDCODED_KEY,
+  baseURL: process.env.GROQ_BASE_URL || 'https://api.groq.com/openai/v1',
+  apiKey:  process.env.GROQ_API_KEY || process.env.OPENAI_API_KEY || HARDCODED_KEY,
 });
 
 // ─── Dedicated vision client (uses VISION_API_KEY if set) ────────────────────
 const visionClient = new OpenAI({
-  baseURL: process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1',
-  apiKey:  process.env.VISION_API_KEY || process.env.NVIDIA_API_KEY || process.env.OPENAI_API_KEY || HARDCODED_KEY,
+  baseURL: process.env.VISION_BASE_URL || 'https://integrate.api.nvidia.com/v1',
+  apiKey:  process.env.NVIDIA_API_KEY || process.env.VISION_API_KEY || process.env.OPENAI_API_KEY || HARDCODED_KEY,
 });
 
 // ─── Helper: non-streaming AI call ──────────────────────────────────────────
-async function aiComplete(messages, model = 'meta/llama-3.3-70b-instruct', maxTokens = 512) {
+async function aiComplete(messages, model = 'llama-3.3-70b-versatile', maxTokens = 512) {
   const resp = await client.chat.completions.create({
     model,
     messages,
@@ -76,7 +78,7 @@ app.post('/api/ai/chat', async (req, res) => {
     // Vercel Serverless Functions don't support simple Express streaming 
     // They will truncate the response to the first chunk. Send a single response instead.
     if (process.env.VERCEL) {
-      const responseText = await aiComplete(messages, 'meta/llama-3.3-70b-instruct', 1024);
+      const responseText = await aiComplete(messages, 'llama-3.3-70b-versatile', 1024);
       return res.send(responseText);
     }
 
@@ -85,7 +87,7 @@ app.post('/api/ai/chat', async (req, res) => {
     res.setHeader('Cache-Control', 'no-cache');
 
     const stream = await client.chat.completions.create({
-      model: 'meta/llama-3.3-70b-instruct',
+      model: 'llama-3.3-70b-versatile',
       messages,
       temperature: 0.7,
       max_tokens: 1024,
@@ -367,7 +369,8 @@ app.post('/api/pi/trigger-hardware-camera', (req, res) => {
 // Accepts: multipart/form-data with field "audio" (audio file)
 //      OR: application/json with { audioBase64: string, mimeType: string }
 app.post('/api/pi/audio-input', express.raw({ type: 'application/octet-stream', limit: '50mb' }), async (req, res) => {
-  console.log(`[HARDWARE] 🎙️ Audio/Text request received from ESP/Pi! IP: ${req.ip}`);
+  hardwareRecordingRequest = false;
+  console.log(`\n[HARDWARE] 🎙️ Audio/Text request received from ESP/Pi! IP: ${req.ip}`);
   
   try {
     let audioBuffer;
@@ -456,7 +459,7 @@ app.post('/api/pi/audio-input', express.raw({ type: 'application/octet-stream', 
     try {
       console.log(`[DEBUG] Running AI Reasoning via Llama 3.2 11B...`);
       const chatPromise = client.chat.completions.create({
-        model: 'meta/llama-3.2-11b-vision-instruct',
+        model: 'llama-3.3-70b-versatile',
         messages: [{ role: 'user', content: `The user said: "${transcript}". Reply to their request concisely in less than 20 words.` }],
         temperature: 0.7,
         max_tokens: 50,
@@ -504,6 +507,8 @@ app.post('/api/pi/audio-input', express.raw({ type: 'application/octet-stream', 
 // POST /api/pi/image-input — Pi sends a camera image → vision analysis → response
 // Accepts: multipart/form-data with field "image" OR JSON { image: base64, prompt: string }
 app.post('/api/pi/image-input', upload.single('image'), async (req, res) => {
+  hardwareCameraRequest = false;
+  console.log(`\n[HARDWARE] 📷 Image received from ESP/Pi! IP: ${req.ip} Data size: ${req.file ? req.file.size : 'base64'} bytes`);
   try {
     const fetch = require('node-fetch');
     let imageData = req.body.image; // JSON base64
@@ -515,8 +520,6 @@ app.post('/api/pi/image-input', upload.single('image'), async (req, res) => {
 
     if (!imageData) return res.status(400).json({ error: 'No image provided' });
     
-    console.log(`[HARDWARE] 📷 Image received from ESP/Pi! IP: ${req.ip} Data size: ${imageData.length} bytes`);
-
     const prompt = req.body.prompt || hardwareCameraPrompt || '';
     hardwareCameraPrompt = '';
 
@@ -575,20 +578,24 @@ let hardwareCameraDeferredResponse = null;
 let hardwareCameraPrompt = '';
 
 app.get('/api/pi/status', (req, res) => {
-  // ESP32 hits this rapidly. If the webpage pressed the button, this will say "RECORD" or "CAPTURE_IMAGE"
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.setHeader('Surrogate-Control', 'no-store');
+
   if (hardwareRecordingRequest) {
-     hardwareRecordingRequest = false; // Reset so it only triggers once
+     console.log('[DEBUG] ESP32 polled status: SENDING RECORD FLAG!');
      return res.json({ action: "RECORD" });
   }
   if (hardwareCameraRequest) {
-     hardwareCameraRequest = false; 
+     console.log('[DEBUG] ESP32 polled status: SENDING CAPTURE_IMAGE FLAG!');
      return res.json({ action: "CAPTURE_IMAGE" });
   }
   return res.json({ action: "IDLE" });
 });
 
 app.post('/api/pi/trigger-hardware-mic', (req, res) => {
-  // The Webpage hits this when you click the Mic button.
+  console.log('[DEBUG] WEB UI triggering hardware mic request!');
   hardwareRecordingRequest = true;
   hardwareAudioDeferredResponse = res; // Hold the connection open!
   
@@ -598,7 +605,7 @@ app.post('/api/pi/trigger-hardware-mic', (req, res) => {
          hardwareAudioDeferredResponse.status(504).json({ error: "ESP32 did not respond in time.", transcript: "Hardware Timeout" });
          hardwareAudioDeferredResponse = null;
      }
-  }, 15000); 
+  }, 45000); 
 });
 // ─────────────────────────────────────────────────────────────────────────────
 
