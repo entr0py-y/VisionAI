@@ -160,23 +160,24 @@ const VoiceAssistantController = (() => {
       addChatMessage("ai", "📡 Contacting ESP32 Mic...");
     }
 
-    // Ping Backend every 150ms until ESP32 physically starts I2S loop
-    let listeningPoll = setInterval(async () => {
-      if (!isRecordingState) {
-        clearInterval(listeningPoll);
-        return;
-      }
+    // Ping Backend cleanly without overlapping HTTP requests
+    let hasNotifiedListening = false;
+    const pollListening = async () => {
+      if (!isRecordingState || hasNotifiedListening) return;
       try {
         const ping = await fetch(getBackendUrl('/api/pi/listening-status'));
         const pingData = await ping.json();
-        if (pingData.listening) {
+        if (pingData.listening && !hasNotifiedListening) {
+          hasNotifiedListening = true;
           addChatMessage("system", "🟢 LISTENING NOW! Speak for 3 seconds...");
-          clearInterval(listeningPoll);
+          return;
         }
       } catch (e) {
         // silently fail polling
       }
-    }, 150);
+      if (!hasNotifiedListening) setTimeout(pollListening, 150);
+    };
+    pollListening();
 
     try {
       // Tell the backend to command the ESP32 to record, and Wait for the reply!
