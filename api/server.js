@@ -460,6 +460,16 @@ app.post('/api/pi/audio-input', express.raw({ type: 'application/octet-stream', 
     }
 
     console.log(`[DEBUG] Transcript: ${transcript}`);
+    
+    // 💾 SAVE USER VOICE TRANSCRIPT TO DATABASE
+    try {
+      safeInsert('messages', { 
+        role: 'user', 
+        content: transcript, 
+        type: 'voice', 
+        username: req.body.username || "hardware_user" 
+      }).catch(() => {});
+    } catch(e) {}
 
     let aiResponse = "";
     
@@ -484,6 +494,16 @@ app.post('/api/pi/audio-input', express.raw({ type: 'application/octet-stream', 
     }
 
     console.log(`[DEBUG] Llama Response: ${aiResponse}`);
+
+    // 💾 SAVE AI RESPONSE TO DATABASE
+    try {
+      safeInsert('messages', { 
+        role: 'assistant', 
+        content: aiResponse, 
+        type: 'voice', 
+        username: req.body.username || "hardware_user" 
+      }).catch(() => {});
+    } catch(e) {}
 
     const finalData = {
       text: aiResponse,
