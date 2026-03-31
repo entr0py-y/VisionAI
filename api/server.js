@@ -572,6 +572,7 @@ app.post('/api/pi/audio-output', async (req, res) => {
 // =========================================================================
 
 // ─── HARDWARE / WEBPAGE SYNC STATE ───────────────────────────────────────────
+let hardwareHealth = { lastMicPoll: 0, lastCamPoll: 0 };
 let hardwareRecordingRequest = false;
 let hardwareIsCurrentlyListening = false;
 let hardwareAudioDeferredResponse = null;
@@ -606,6 +607,10 @@ app.post('/api/pi/button-pressed', (req, res) => {
 
 // 3. Status Poll Endpoint (Pi checks this every second)
 app.get('/api/pi/status', (req, res) => {
+  // Health Heartbeat interceptor
+  if (req.query.device === 'mic') hardwareHealth.lastMicPoll = Date.now();
+  if (req.query.device === 'cam') hardwareHealth.lastCamPoll = Date.now();
+
   // We use this endpoint for BOTH camera and mic polling to avoid two separate intervals.
   let action = 'IDLE';
 
@@ -618,6 +623,15 @@ app.get('/api/pi/status', (req, res) => {
   }
 
   res.json({ action });
+});
+
+// NEW: Health Diagnostic Endpoint for Vercel Widget
+app.get('/api/pi/health', (req, res) => {
+  const now = Date.now();
+  res.json({
+    micOnline: (now - hardwareHealth.lastMicPoll) <= 15000,
+    camOnline: (now - hardwareHealth.lastCamPoll) <= 15000
+  });
 });
 
 // NEW: Polling Endpoint for Frontend to track if Pi is actively recording

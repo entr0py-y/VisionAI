@@ -70,12 +70,14 @@ void setup() {
   i2s_zero_dma_buffer(I2S_PORT);
   Serial.println("I2S Mic initialized.");
 
-  // Initialize Physics Touch Button
-  pinMode(TOUCH_PIN, INPUT);
+  // Initialize Physics Touch Button with Internal Pull-Down Resistor
+  // This explicitly guarantees it sits perfectly at LOW (0V) instead of floating into an infinite loop!
+  pinMode(TOUCH_PIN, INPUT_PULLDOWN);
 }
 
 WiFiClientSecure persistentStatusClient;
 bool isStatusClientInit = false;
+bool lastTouchState = LOW; // Edge Detection State
 
 void loop() {
   if (WiFi.status() != WL_CONNECTED) {
@@ -83,22 +85,29 @@ void loop() {
     return;
   }
 
-  // Check Physical Touch Sensor Fast Path
-  if (digitalRead(TOUCH_PIN) == HIGH) {
+  // Check Physical Touch Sensor Fast Path (RISING EDGE DETECTION ONLY)
+  bool currentTouchState = digitalRead(TOUCH_PIN);
+  
+  if (currentTouchState == HIGH && lastTouchState == LOW) {
     Serial.println("\n[EVENT] Physical Touch Detected! Alerting Website...");
     
-    // Quick HTTPS ping to the backend SSE Router
+    // Quick HTTPS ping to the backend SSE Router heavily isolated on a new socket!
+    WiFiClientSecure btnClient;
+    btnClient.setInsecure();
     HTTPClient httpBtn;
     String pingUrl = String("https://") + serverIp + "/api/pi/button-pressed";
-    httpBtn.begin(persistentStatusClient, pingUrl);
+    httpBtn.begin(btnClient, pingUrl);
     int code = httpBtn.POST("");
     httpBtn.end();
     
     Serial.printf("Server Ping Result: %d\n", code);
     
     // Prevent physical button double-clicking / bounces
-    delay(1000); 
+    delay(500); 
   }
+  
+  // Update state memory!
+  lastTouchState = currentTouchState;
 
   // Initialize Persistent SSL Context once to avoid 2-second computational delays every poll
   if (!isStatusClientInit) {
@@ -108,7 +117,7 @@ void loop() {
 
   HTTPClient http;
   http.setReuse(true); // Keep connection warm
-  String statusUrl = String("https://") + serverIp + "/api/pi/status?t=" + String(millis());
+  String statusUrl = String("https://") + serverIp + "/api/pi/status?device=mic&t=" + String(millis());
   http.begin(persistentStatusClient, statusUrl);
   
   int httpCode = http.GET();

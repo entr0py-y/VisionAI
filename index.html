@@ -408,6 +408,44 @@
         fill: none;
       }
 
+      .hw-status-widget {
+        position: absolute;
+        bottom: 80px; 
+        left: 20px;
+        display: flex;
+        gap: 15px;
+        background: rgba(0, 0, 0, 0.4);
+        padding: 8px 16px;
+        border-radius: 20px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(10px);
+        z-index: 100;
+        animation: slideUp 0.5s ease;
+      }
+      .hw-status-item {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        font-weight: 600;
+        transition: color 0.3s ease;
+      }
+      .hw-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--danger);
+        box-shadow: 0 0 5px var(--danger);
+        transition: all 0.3s ease;
+      }
+      .hw-dot.online {
+        background: var(--success);
+        box-shadow: 0 0 8px var(--success);
+      }
+
       .bottom-nav {
         position: fixed;
         bottom: 0;
@@ -1817,6 +1855,15 @@
     </div>
 
     <div class="system-log" id="systemLog"></div>
+
+    <div class="hw-status-widget" id="hwStatusWidget">
+      <div class="hw-status-item">
+        <div class="hw-dot" id="dotCam"></div> CAM
+      </div>
+      <div class="hw-status-item">
+        <div class="hw-dot" id="dotMic"></div> MIC
+      </div>
+    </div>
 
     <nav class="bottom-nav">
       <div class="nav-item active" data-tab="home" onclick="switchTab(this)">
@@ -3335,6 +3382,30 @@ function navSOS(el) {
          } catch(e) {
            console.log("Failed to map SSE pipeline.");
          }
+
+         // HARDWARE HEALTH DIAGNOSTIC POLL
+         setInterval(async () => {
+           try {
+             const resp = await fetch(`${backendUrl}/api/pi/health`);
+             const data = await resp.json();
+             const dotCam = document.getElementById('dotCam');
+             const dotMic = document.getElementById('dotMic');
+             
+             if (dotCam) {
+               if (data.camOnline) dotCam.classList.add("online");
+               else dotCam.classList.remove("online");
+             }
+             if (dotMic) {
+               if (data.micOnline) dotMic.classList.add("online");
+               else dotMic.classList.remove("online");
+             }
+           } catch(e) {
+                const dotCam = document.getElementById('dotCam');
+                const dotMic = document.getElementById('dotMic');
+                if (dotCam) dotCam.classList.remove("online");
+                if (dotMic) dotMic.classList.remove("online");
+           }
+         }, 2000);
       });
     </script>
   </body>

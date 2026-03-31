@@ -87,19 +87,25 @@ void setup() {
   }
 }
 
+WiFiClientSecure persistentCamClient;
+bool isCamClientInit = false;
+
 void loop() {
   if (WiFi.status() != WL_CONNECTED) {
     delay(1000);
     return;
   }
 
-  // Poll Node.js server every 1 second
-  WiFiClientSecure secureClient;
-  secureClient.setInsecure(); // Ignore SSL Validation for Render
+  // Use persistent connection to prevent endless 3.0s TLS handshakes and memory frag!
+  if (!isCamClientInit) {
+    persistentCamClient.setInsecure();
+    isCamClientInit = true;
+  }
 
   HTTPClient http;
-  String statusUrl = String("https://") + serverIp + "/api/pi/status?t=" + String(millis());
-  http.begin(secureClient, statusUrl);
+  http.setReuse(true); // Key for preventing Read Timeouts!
+  String statusUrl = String("https://") + serverIp + "/api/pi/status?device=cam&t=" + String(millis());
+  http.begin(persistentCamClient, statusUrl);
   
   int httpCode = http.GET();
   if (httpCode == HTTP_CODE_OK) {
