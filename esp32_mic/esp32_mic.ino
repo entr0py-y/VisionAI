@@ -161,6 +161,13 @@ void recordToRAMAndSend(bool isRemotelyTriggered) {
   digitalWrite(LED_BUILTIN, HIGH); // PHYSICAL INDICATOR: TURN ON (Speak Now)
 
   while (totalBytesRecorded < maxDurationBytes) {
+      // DYNAMIC PTT FAST-PATH: If the user releases the physical button, violently snap the recording off early!
+      // This trivially slashes exactly as many seconds of latency off the backend processing as the user didn't need to use!
+      // We physically enforce a minimum of 0.5 seconds (16,000 bytes) so the Cloud STT API doesn't reject an empty file.
+      if (digitalRead(TOUCH_PIN) == LOW && totalBytesRecorded > 16000) {
+          Serial.println("👆 Physical Button Released! Cutting stream early to reduce massive API latency...");
+          break;
+      }
       uint8_t chunk32[2048]; // 512 samples
       size_t bytesRead = 0;
       i2s_read(I2S_PORT, chunk32, 2048, &bytesRead, portMAX_DELAY);
