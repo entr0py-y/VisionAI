@@ -177,14 +177,8 @@ void recordToRAMAndSend(bool isRemotelyTriggered) {
                 Serial.println("⚠️ Hard limit reached! Capping block allocations.");
                 allocationFailed = true; break;
             }
-            // Ultra-Light Firewall:
-            // Since our persistent socket ALREADY holds the 42KB TLS block securely, 
-            // we NEVER have to worry about TLS Mbed allocation panics here.
-            // We just leave a tiny 12KB headroom for the FreeRTOS OS queues!
-            if (ESP.getMaxAllocHeap() < 12000) {
-                Serial.println("⚠️ Kernel Memory Firewall! Capping recording to prevent FreeRTOS crash.");
-                allocationFailed = true; break;
-            }
+            // User explicitly requested to disable RAM safety checks.
+            // Proceeding with absolute allocation limits only!
             
             // Allocate dynamically only when required natively!
             audioBlocks[blocksAllocated] = (uint8_t*) heap_caps_malloc(BLOCK_SIZE, MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM);
