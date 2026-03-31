@@ -29,7 +29,11 @@ void setup() {
   Serial.begin(115200);
   Serial.println("Starting ESP32 Mic...");
 
-  // 1. CONNECT TO WIFI
+  // 1. CONNECT TO WIFI (With aggressive NVS corruption bypass)
+  WiFi.mode(WIFI_STA);       // Explicitly set ESP32 to Station Mode 
+  WiFi.disconnect(true);     // Force erase any corrupted internal Wi-Fi configurations
+  delay(100);                // Wait for the RF modem to completely wipe its cache
+  
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
