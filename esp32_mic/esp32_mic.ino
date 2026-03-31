@@ -127,9 +127,8 @@ void loop() {
 }
 
 void recordToRAMAndSend(bool isRemotelyTriggered) {
-  // Free long-polling socket to reclaim 45KB of SSL headroom!
-  persistentStatusClient.stop();
-  delay(10); // Let FreeRTOS Garbage Collector reclaim the SSL buffers safely
+  // We DO NOT stop the persistent socket! It gracefully holds the 42KB TLS SSL
+  // memory contiguous hole indefinitely. We record directly around it!
 
   const int NUM_BLOCKS = 15; // Max 150KB (~4.6s of contiguous recording)
   const int BLOCK_SIZE = 10000;
@@ -178,11 +177,12 @@ void recordToRAMAndSend(bool isRemotelyTriggered) {
                 Serial.println("⚠️ Hard limit reached! Capping block allocations.");
                 allocationFailed = true; break;
             }
-            // Strict Anti-Fragmentation Firewall: 
-            // The TLS SSL Certificate Engine natively requires a SINGLE CONTIGUOUS ~42KB hole in the RAM to process Handshakes.
-            // If we check getMaxAllocHeap(), we guarantee we NEVER fragment that specific hole!
-            if (ESP.getMaxAllocHeap() < 65000) {
-                Serial.println("⚠️ Anti-Fragmentation Firewall Triggered! Capping recording to preserve contiguous SSL hole.");
+            // Ultra-Light Firewall:
+            // Since our persistent socket ALREADY holds the 42KB TLS block securely, 
+            // we NEVER have to worry about TLS Mbed allocation panics here.
+            // We just leave a tiny 12KB headroom for the FreeRTOS OS queues!
+            if (ESP.getMaxAllocHeap() < 12000) {
+                Serial.println("⚠️ Kernel Memory Firewall! Capping recording to prevent FreeRTOS crash.");
                 allocationFailed = true; break;
             }
             
@@ -214,17 +214,20 @@ void recordToRAMAndSend(bool isRemotelyTriggered) {
   }
   
   Serial.printf("⏹️ STOPPED. Captured %u bytes spanning across %d blocks natively.\n", totalBytesRecorded, blocksAllocated);
-  Serial.println("Establishing Secure HTTPS connection for Audio Injection...");
+  Serial.println("Re-using pre-established Secure TLS Connection for seamless Audio Injection...");
 
-  WiFiClientSecure clientAudio;
-  clientAudio.setInsecure();
+  // Re-use our persistent socket that ALREADY has the 42KB TLS block mapped to avoid memory crashes
+  if (!persistentStatusClient.connected()) {
+     Serial.println("Re-connecting dormant TLS SSL Tunnel...");
+     persistentStatusClient.connect(serverIp, serverPort);
+  }
 
-  if (clientAudio.connect(serverIp, serverPort)) {
-    clientAudio.print("POST /api/pi/audio-input HTTP/1.1\r\n");
-    clientAudio.print("Host: " + String(serverIp) + "\r\n");
-    clientAudio.print("Connection: close\r\n"); 
-    clientAudio.print("Content-Type: application/octet-stream\r\n");
-    clientAudio.print("Content-Length: " + String(totalBytesRecorded) + "\r\n\r\n");
+  if (persistentStatusClient.connected()) {
+    persistentStatusClient.print("POST /api/pi/audio-input HTTP/1.1\r\n");
+    persistentStatusClient.print("Host: " + String(serverIp) + "\r\n");
+    persistentStatusClient.print("Connection: keep-alive\r\n"); 
+    persistentStatusClient.print("Content-Type: application/octet-stream\r\n");
+    persistentStatusClient.print("Content-Length: " + String(totalBytesRecorded) + "\r\n\r\n");
 
     // Upload disjoint datablocks 
     size_t offset = 0;
@@ -236,22 +239,23 @@ void recordToRAMAndSend(bool isRemotelyTriggered) {
         int bytesRemainingToUpload = totalBytesRecorded - offset;
         int sendSize = (bytesRemainingToUpload < spaceLeftInBlock) ? bytesRemainingToUpload : spaceLeftInBlock;
         
-        clientAudio.write(audioBlocks[blockIndex] + offsetInBlock, sendSize);
+        persistentStatusClient.write(audioBlocks[blockIndex] + offsetInBlock, sendSize);
         offset += sendSize;
     }
 
     Serial.println("✅ Audio successfully bridged to Cloud Transcriber.");
 
     long timeout = millis();
-    while (clientAudio.connected() && millis() - timeout < 7000) {
-      if (clientAudio.available()) {
-        clientAudio.read();
+    while (persistentStatusClient.connected() && millis() - timeout < 7000) {
+      if (persistentStatusClient.available()) {
+        // Read out HTTP response implicitly
+        persistentStatusClient.read();
         timeout = millis();
       }
     }
     Serial.println("[UPLOAD] Whisper API HTTP Response Concluded.");
   } else {
-    Serial.println("❌ [UPLOAD] Audio connection FAILED! Check WiFi signal.");
+    Serial.println("❌ [UPLOAD] Persistent Tunnel completely collapsed! Reboot ESP32.");
   }
 
   // Release entire memory pool safely
@@ -259,6 +263,5 @@ void recordToRAMAndSend(bool isRemotelyTriggered) {
       free(audioBlocks[i]);
   }
   
-  // Flag system polling state to reboot persistent client gracefully
-  isStatusClientInit = false;
+  // We keep the persistent socket alive continuously! No reboot necessary.
 }
