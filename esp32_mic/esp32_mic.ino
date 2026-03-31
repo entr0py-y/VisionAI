@@ -127,36 +127,20 @@ void loop() {
 }
 
 void recordToRAMAndSend(bool isRemotelyTriggered) {
-  // To avoid Heap Fragmentation crashes (where ESP32 has RAM but not in one contiguous block)
-  // We allocate memory in multiple disjoint blocks to completely scavenge available RAM!
-  const int NUM_BLOCKS = 12; // 12 blocks * 10KB = 120KB (~3.75 Seconds) 
+  // Free long-polling socket to reclaim 45KB of SSL headroom!
+  persistentStatusClient.stop();
+  delay(10); // Let FreeRTOS Garbage Collector reclaim the SSL buffers safely
+
+  const int NUM_BLOCKS = 15; // Max 150KB (~4.6s of contiguous recording)
   const int BLOCK_SIZE = 10000;
   uint8_t* audioBlocks[NUM_BLOCKS];
   int blocksAllocated = 0;
-  
-  for(int i = 0; i < NUM_BLOCKS; i++) {
-      // Try PSRAM first, fallback to internal Heap
-      audioBlocks[i] = (uint8_t*) heap_caps_malloc(BLOCK_SIZE, MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM);
-      if(!audioBlocks[i]) audioBlocks[i] = (uint8_t*) malloc(BLOCK_SIZE);
-      if(!audioBlocks[i]) {
-          Serial.printf("⚠️ Memory Warning: Only squeezed %d / %d blocks from heap.\n", i, NUM_BLOCKS);
-          break;
-      }
-      blocksAllocated++;
-  }
-  
-  if (blocksAllocated == 0) {
-      Serial.println("❌ FAILED to allocate ANY RAM for audio buffer! Rebooting...");
-      return;
-  }
 
-  uint32_t TOTAL_MAX_BYTES = blocksAllocated * BLOCK_SIZE;
   i2s_zero_dma_buffer(I2S_PORT);
   size_t totalBytesRecorded = 0;
   const size_t maxRemoteBytes = 96000; // 3.0 seconds if requested from web
 
-  Serial.println("🔴 RECORDING INSTANTLY...");
-
+  Serial.println("🔴 RECORDING INSTANTLY (Dynamic Allocation)...");
   uint32_t lastReadTime = millis();
 
   while (true) {
@@ -164,12 +148,8 @@ void recordToRAMAndSend(bool isRemotelyTriggered) {
        if (totalBytesRecorded >= maxRemoteBytes) break;
     } else {
        if (digitalRead(TOUCH_PIN) == LOW) {
-          // Guarantee at least 0.5s is recorded so HTTP doesn't reject it
+          // Guarantee at least 0.5s is recorded so HTTP doesn't reject small payloads
           if (millis() - lastReadTime > 500) break; 
-       }
-       if (totalBytesRecorded >= TOTAL_MAX_BYTES) {
-          Serial.println("⚠️ Warning: Block buffer FULL! Capping recording length.");
-          break;
        }
     }
 
@@ -191,28 +171,53 @@ void recordToRAMAndSend(bool isRemotelyTriggered) {
     
     int bytesToSend = samplesRead * 2;
     
-    // Distribute these bytes flawlessly across fragmented memory blocks!
+    // Distribute these bytes flawlessly across fragmented memory blocks on-the-fly!
     int bytesWrittenThisLoop = 0;
+    bool allocationFailed = false;
+
     while(bytesWrittenThisLoop < bytesToSend) {
-        if (totalBytesRecorded >= TOTAL_MAX_BYTES) break;
+        int currentBlockIndex = totalBytesRecorded / BLOCK_SIZE;
         
-        int blockIndex = totalBytesRecorded / BLOCK_SIZE;
+        if (currentBlockIndex >= blocksAllocated) {
+            if (currentBlockIndex >= NUM_BLOCKS) {
+                Serial.println("⚠️ Hard limit reached! Capping block allocations.");
+                allocationFailed = true; break;
+            }
+            // Strict Firewall: Guarantee minimum 65KB heap memory reserved strictly for the SSL Handshake Upload!
+            if (ESP.getFreeHeap() < 65000) {
+                Serial.println("⚠️ Low Memory Firewall Triggered! Capping recording length to guarantee successful Upload.");
+                allocationFailed = true; break;
+            }
+            
+            // Allocate dynamically only when required natively!
+            audioBlocks[blocksAllocated] = (uint8_t*) heap_caps_malloc(BLOCK_SIZE, MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM);
+            if(!audioBlocks[blocksAllocated]) audioBlocks[blocksAllocated] = (uint8_t*) malloc(BLOCK_SIZE);
+            if (!audioBlocks[blocksAllocated]) {
+                allocationFailed = true; break;
+            }
+            
+            blocksAllocated++;
+        }
+        
         int offsetInBlock = totalBytesRecorded % BLOCK_SIZE;
-        
         int spaceLeftInBlock = BLOCK_SIZE - offsetInBlock;
         int chunkRemaining = bytesToSend - bytesWrittenThisLoop;
         
         int bytesToCopy = (chunkRemaining < spaceLeftInBlock) ? chunkRemaining : spaceLeftInBlock;
         
-        memcpy(audioBlocks[blockIndex] + offsetInBlock, ((uint8_t*)chunk16) + bytesWrittenThisLoop, bytesToCopy);
+        memcpy(audioBlocks[currentBlockIndex] + offsetInBlock, ((uint8_t*)chunk16) + bytesWrittenThisLoop, bytesToCopy);
         
         totalBytesRecorded += bytesToCopy;
         bytesWrittenThisLoop += bytesToCopy;
     }
+
+    if (allocationFailed && bytesWrittenThisLoop < bytesToSend) {
+        break; // Force stop hardware loop
+    }
   }
   
-  Serial.printf("⏹️ STOPPED. Captured %u bytes natively.\n", totalBytesRecorded);
-  Serial.println("Establishing HTTPS connection and uploading natively...");
+  Serial.printf("⏹️ STOPPED. Captured %u bytes spanning across %d blocks natively.\n", totalBytesRecorded, blocksAllocated);
+  Serial.println("Establishing Secure HTTPS connection for Audio Injection...");
 
   WiFiClientSecure clientAudio;
   clientAudio.setInsecure();
@@ -224,7 +229,7 @@ void recordToRAMAndSend(bool isRemotelyTriggered) {
     clientAudio.print("Content-Type: application/octet-stream\r\n");
     clientAudio.print("Content-Length: " + String(totalBytesRecorded) + "\r\n\r\n");
 
-    // Upload stored disjoint blocks securely
+    // Upload disjoint datablocks 
     size_t offset = 0;
     while (offset < totalBytesRecorded) {
         int blockIndex = offset / BLOCK_SIZE;
@@ -238,7 +243,7 @@ void recordToRAMAndSend(bool isRemotelyTriggered) {
         offset += sendSize;
     }
 
-    Serial.println("✅ Audio completely sent to the cloud.");
+    Serial.println("✅ Audio successfully bridged to Cloud Transcriber.");
 
     long timeout = millis();
     while (clientAudio.connected() && millis() - timeout < 7000) {
@@ -247,13 +252,16 @@ void recordToRAMAndSend(bool isRemotelyTriggered) {
         timeout = millis();
       }
     }
-    Serial.println("[UPLOAD] Pipeline response received.");
+    Serial.println("[UPLOAD] Whisper API HTTP Response Concluded.");
   } else {
-    Serial.println("❌ [UPLOAD] Audio server connection failed! Check WiFi or Server.");
+    Serial.println("❌ [UPLOAD] Audio connection FAILED! Check WiFi signal.");
   }
 
-  // Free MEMORY cleanly back to FreeRTOS!
+  // Release entire memory pool safely
   for(int i = 0; i < blocksAllocated; i++) {
       free(audioBlocks[i]);
   }
+  
+  // Flag system polling state to reboot persistent client gracefully
+  isStatusClientInit = false;
 }
