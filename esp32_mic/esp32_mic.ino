@@ -155,7 +155,9 @@ void recordToRAMAndSend(bool isRemotelyTriggered) {
 
   i2s_zero_dma_buffer(I2S_PORT);
   size_t totalBytesRecorded = 0;
-  const size_t maxDurationBytes = 96000; // Hard limit 3.0 seconds
+  // 16000Hz * 2 bytes = 32,000 bytes per second.
+  // We can easily stream up to 500,000 bytes (~15.6 seconds) seamlessly now that we bypassed the RAM arrays!
+  const size_t maxDurationBytes = 500000; 
 
   Serial.println("🔴 STREAMING AUDIO LIVE TO RENDER (Chunked)...");
   digitalWrite(LED_BUILTIN, HIGH); // PHYSICAL INDICATOR: TURN ON (Speak Now)
