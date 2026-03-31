@@ -3371,9 +3371,8 @@ function navSOS(el) {
                const isModalOpen = overlay && overlay.classList.contains('active');
                if (!isModalOpen || activeModal !== 'companion') {
                  const aiTab = document.querySelector('.nav-item[data-tab="ai"]');
-                 if (aiTab) {
+               if (aiTab) {
                     switchTab(aiTab);
-                    if (typeof loadChatHistory === 'function') loadChatHistory();
                  }
                }
              } else if (data.event === "HARDWARE_BTN_RELEASED") {
