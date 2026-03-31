@@ -5,9 +5,8 @@
 
 // ===========================
 // CONFIGURATION
-// ===========================
-const char* ssid = "vision";
-const char* password = "12345678";
+const char* ssid = "Heisenberg";
+const char* password = "11111111";
 
 // Cloud Server Configuration
 const char* serverIp = "visionai-hig1.onrender.com";
@@ -71,7 +70,7 @@ void setup() {
   config.pixel_format = PIXFORMAT_JPEG; 
   if(psramFound()){
     config.frame_size = FRAMESIZE_VGA;
-    config.jpeg_quality = 10;
+    config.jpeg_quality = 12; // Lowered from 10 to 12 to reduce file size & latency
     config.fb_count = 1;
   } else {
     config.frame_size = FRAMESIZE_VGA;
@@ -87,8 +86,7 @@ void setup() {
   }
 }
 
-WiFiClientSecure persistentCamClient;
-bool isCamClientInit = false;
+WiFiClientSecure* persistentCamClient = nullptr;
 
 void loop() {
   if (WiFi.status() != WL_CONNECTED) {
@@ -96,16 +94,16 @@ void loop() {
     return;
   }
 
-  // Use persistent connection to prevent endless 3.0s TLS handshakes and memory frag!
-  if (!isCamClientInit) {
-    persistentCamClient.setInsecure();
-    isCamClientInit = true;
+  // Use persistent connection dynamically allocated AFTER PSRAM mounts to prevent endless boot-hangs!
+  if (persistentCamClient == nullptr) {
+    persistentCamClient = new WiFiClientSecure();
+    persistentCamClient->setInsecure();
   }
 
   HTTPClient http;
   http.setReuse(true); // Key for preventing Read Timeouts!
   String statusUrl = String("https://") + serverIp + "/api/pi/status?device=cam&t=" + String(millis());
-  http.begin(persistentCamClient, statusUrl);
+  http.begin(*persistentCamClient, statusUrl);
   
   int httpCode = http.GET();
   if (httpCode == HTTP_CODE_OK) {
@@ -125,6 +123,14 @@ void loop() {
 }
 
 void captureAndSendImage() {
+  // FLUSH STALE FRAME: Since fb_count is 1, the camera driver buffers the oldest unseen frame.
+  // We grab the existing frame and return it immediately to clear the buffer.
+  camera_fb_t * stale_fb = esp_camera_fb_get();
+  if (stale_fb) {
+    esp_camera_fb_return(stale_fb);
+  }
+
+  // NOW GRAB THE CURRENT REAL-TIME FRAME
   camera_fb_t * fb = esp_camera_fb_get();
   if (!fb) {
     Serial.println("Camera capture failed");

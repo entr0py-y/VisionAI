@@ -204,6 +204,11 @@ def capture_image_opencv() -> bytes | None:
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
         time.sleep(0.3)
+        
+        # Read a few frames to clear the V4L2 hardware buffer and allow auto-exposure to adjust
+        for _ in range(5):
+            cap.read()
+            
         ret, frame = cap.read()
         cap.release()
         if not ret:
