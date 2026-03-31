@@ -30,15 +30,31 @@ void setup() {
   Serial.begin(115200);
   Serial.println("Starting ESP32 Mic...");
 
-  // 1. CONNECT TO WIFI (With aggressive NVS corruption bypass)
-  WiFi.mode(WIFI_STA);       // Explicitly set ESP32 to Station Mode 
-  WiFi.disconnect(true);     // Force erase any corrupted internal Wi-Fi configurations
-  delay(100);                // Wait for the RF modem to completely wipe its cache
+  // 1. CONNECT TO WIFI (With aggressive Anti-Hang Modem Cycle)
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_OFF);       // Hard-kill the RF modem temporarily
+  delay(100);      
+  WiFi.mode(WIFI_STA);       // Boot it back up cleanly
+  delay(100);                
   
   WiFi.begin(ssid, password);
+  
+  int wifiRetries = 0;
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
+    wifiRetries++;
+    
+    // CRITICAL: If the ESP32 misses the router's beacon on the first attempt, it natively gives up internally!
+    // The standard `while` loop will just print `.` forever. 
+    // We strictly enforce an aggressive 10-second timeout to brutally kickstart the modem again!
+    if (wifiRetries >= 20) {
+      Serial.println("\n[WIFI] Scan Timeout! Hotspot likely asleep or hiding. Forcing RF Antenna Reboot...");
+      WiFi.disconnect(true);
+      delay(500);
+      WiFi.begin(ssid, password);
+      wifiRetries = 0;
+    }
   }
   Serial.println("\nWiFi Connected!");
   Serial.print("IP Address: ");
