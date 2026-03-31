@@ -5,9 +5,8 @@
 
 // ===========================
 // CONFIGURATION
-// ===========================
-const char* ssid = "vision";
-const char* password = "12345678";
+const char* ssid = "Heisenberg";
+const char* password = "11111111";
 
 // Cloud Server Configuration
 const char* serverIp = "visionai-hig1.onrender.com";
@@ -77,7 +76,7 @@ void setup() {
 
 WiFiClientSecure persistentStatusClient;
 bool isStatusClientInit = false;
-bool lastTouchState = LOW; // Edge Detection State
+bool lastTouchState = LOW;
 
 void loop() {
   if (WiFi.status() != WL_CONNECTED) {
@@ -85,38 +84,30 @@ void loop() {
     return;
   }
 
-  // Check Physical Touch Sensor Fast Path (RISING EDGE DETECTION ONLY)
+  // Check Physical Touch Sensor Fast Path
   bool currentTouchState = digitalRead(TOUCH_PIN);
   
   if (currentTouchState == HIGH && lastTouchState == LOW) {
-    Serial.println("\n[EVENT] Physical Touch Detected! Alerting Website...");
+    Serial.println("\n[PTT] Physical Touch Detected! Instantly recording to RAM...");
+    // PTT Stream - RAM Buffered
+    recordToRAMAndSend(false);
     
-    // Quick HTTPS ping to the backend SSE Router heavily isolated on a new socket!
-    WiFiClientSecure btnClient;
-    btnClient.setInsecure();
-    HTTPClient httpBtn;
-    String pingUrl = String("https://") + serverIp + "/api/pi/button-pressed";
-    httpBtn.begin(btnClient, pingUrl);
-    int code = httpBtn.POST("");
-    httpBtn.end();
-    
-    Serial.printf("Server Ping Result: %d\n", code);
-    
-    // Prevent physical button double-clicking / bounces
-    delay(500); 
+    // Debounce
+    delay(200); 
+    currentTouchState = digitalRead(TOUCH_PIN);
   }
   
-  // Update state memory!
   lastTouchState = currentTouchState;
 
-  // Initialize Persistent SSL Context once to avoid 2-second computational delays every poll
+  // Initialize Persistent SSL Context once
   if (!isStatusClientInit) {
     persistentStatusClient.setInsecure();
     isStatusClientInit = true;
   }
 
+  // Status Web Polling
   HTTPClient http;
-  http.setReuse(true); // Keep connection warm
+  http.setReuse(true);
   String statusUrl = String("https://") + serverIp + "/api/pi/status?device=mic&t=" + String(millis());
   http.begin(persistentStatusClient, statusUrl);
   
@@ -124,81 +115,145 @@ void loop() {
   if (httpCode == HTTP_CODE_OK) {
     String payload = http.getString();
     
-    // Check if the server wants us to record
+    // Remotely triggered by Web UI
     if (payload.indexOf("\"RECORD\"") >= 0 || payload.indexOf("RECORD") >= 0) {
-      Serial.println("\n[TRIGGER] Received RECORD command. Recording Mic...");
-      recordAndSendAudio();
+      Serial.println("\n[TRIGGER] Received remote RECORD command. Simulating standard pulse...");
+      recordToRAMAndSend(true);
     }
-  } else {
-    Serial.printf("[HTTP] GET /api/pi/status failed, error: %s\n", http.errorToString(httpCode).c_str());
   }
-  
   http.end();
+  
   delay(100); 
 }
 
-void recordAndSendAudio() {
-  const int recordTimeSec = 3;
-  const int sampleRate = 16000;
-  const int numBytes = recordTimeSec * sampleRate * 2;
+void recordToRAMAndSend(bool isRemotelyTriggered) {
+  // To avoid Heap Fragmentation crashes (where ESP32 has RAM but not in one contiguous block)
+  // We allocate memory in multiple disjoint blocks to completely scavenge available RAM!
+  const int NUM_BLOCKS = 12; // 12 blocks * 10KB = 120KB (~3.75 Seconds) 
+  const int BLOCK_SIZE = 10000;
+  uint8_t* audioBlocks[NUM_BLOCKS];
+  int blocksAllocated = 0;
+  
+  for(int i = 0; i < NUM_BLOCKS; i++) {
+      // Try PSRAM first, fallback to internal Heap
+      audioBlocks[i] = (uint8_t*) heap_caps_malloc(BLOCK_SIZE, MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM);
+      if(!audioBlocks[i]) audioBlocks[i] = (uint8_t*) malloc(BLOCK_SIZE);
+      if(!audioBlocks[i]) {
+          Serial.printf("⚠️ Memory Warning: Only squeezed %d / %d blocks from heap.\n", i, NUM_BLOCKS);
+          break;
+      }
+      blocksAllocated++;
+  }
+  
+  if (blocksAllocated == 0) {
+      Serial.println("❌ FAILED to allocate ANY RAM for audio buffer! Rebooting...");
+      return;
+  }
 
-  Serial.println("Establishing HTTPS connection before recording...");
+  uint32_t TOTAL_MAX_BYTES = blocksAllocated * BLOCK_SIZE;
+  i2s_zero_dma_buffer(I2S_PORT);
+  size_t totalBytesRecorded = 0;
+  const size_t maxRemoteBytes = 96000; // 3.0 seconds if requested from web
+
+  Serial.println("🔴 RECORDING INSTANTLY...");
+
+  uint32_t lastReadTime = millis();
+
+  while (true) {
+    if (isRemotelyTriggered) {
+       if (totalBytesRecorded >= maxRemoteBytes) break;
+    } else {
+       if (digitalRead(TOUCH_PIN) == LOW) {
+          // Guarantee at least 0.5s is recorded so HTTP doesn't reject it
+          if (millis() - lastReadTime > 500) break; 
+       }
+       if (totalBytesRecorded >= TOTAL_MAX_BYTES) {
+          Serial.println("⚠️ Warning: Block buffer FULL! Capping recording length.");
+          break;
+       }
+    }
+
+    uint8_t chunk32[2048]; // 512 samples
+    size_t bytesToRead = 2048; 
+    size_t bytesRead = 0;
+    i2s_read(I2S_PORT, chunk32, bytesToRead, &bytesRead, portMAX_DELAY);
+
+    int samplesRead = bytesRead / 4; 
+    int32_t* ptr32 = (int32_t*)chunk32;
+    int16_t chunk16[512];
+    
+    for(int i = 0; i < samplesRead; i++) {
+      int32_t sample = ptr32[i] >> 14; 
+      if (sample > 32767) sample = 32767;
+      if (sample < -32768) sample = -32768;
+      chunk16[i] = (int16_t)sample;
+    }
+    
+    int bytesToSend = samplesRead * 2;
+    
+    // Distribute these bytes flawlessly across fragmented memory blocks!
+    int bytesWrittenThisLoop = 0;
+    while(bytesWrittenThisLoop < bytesToSend) {
+        if (totalBytesRecorded >= TOTAL_MAX_BYTES) break;
+        
+        int blockIndex = totalBytesRecorded / BLOCK_SIZE;
+        int offsetInBlock = totalBytesRecorded % BLOCK_SIZE;
+        
+        int spaceLeftInBlock = BLOCK_SIZE - offsetInBlock;
+        int chunkRemaining = bytesToSend - bytesWrittenThisLoop;
+        
+        int bytesToCopy = (chunkRemaining < spaceLeftInBlock) ? chunkRemaining : spaceLeftInBlock;
+        
+        memcpy(audioBlocks[blockIndex] + offsetInBlock, ((uint8_t*)chunk16) + bytesWrittenThisLoop, bytesToCopy);
+        
+        totalBytesRecorded += bytesToCopy;
+        bytesWrittenThisLoop += bytesToCopy;
+    }
+  }
+  
+  Serial.printf("⏹️ STOPPED. Captured %u bytes natively.\n", totalBytesRecorded);
+  Serial.println("Establishing HTTPS connection and uploading natively...");
+
   WiFiClientSecure clientAudio;
-  clientAudio.setInsecure(); // Required for Render HTTPS Upload
+  clientAudio.setInsecure();
 
   if (clientAudio.connect(serverIp, serverPort)) {
-    Serial.println("Streaming exact 3.0s audio directly to Cloudflare...");
     clientAudio.print("POST /api/pi/audio-input HTTP/1.1\r\n");
     clientAudio.print("Host: " + String(serverIp) + "\r\n");
     clientAudio.print("Connection: close\r\n"); 
     clientAudio.print("Content-Type: application/octet-stream\r\n");
-    clientAudio.print("Content-Length: " + String(numBytes) + "\r\n\r\n");
+    clientAudio.print("Content-Length: " + String(totalBytesRecorded) + "\r\n\r\n");
 
-    // Clean Start I2S
-    i2s_zero_dma_buffer(I2S_PORT);
-    size_t totalBytesRead = 0;
-    
-    // Stream directly from I2S 32-bit and convert -> HTTPS socket 16-bit
-    while (totalBytesRead < numBytes) {
-      uint8_t chunk32[2048]; // Read 512 samples at 32-bits per sample
-      size_t bytesToRead = 2048; 
-      size_t bytesRead = 0;
-      i2s_read(I2S_PORT, chunk32, bytesToRead, &bytesRead, portMAX_DELAY);
-
-      int samplesRead = bytesRead / 4; // 32-bit samples (4 bytes each)
-      int32_t* ptr32 = (int32_t*)chunk32;
-      int16_t chunk16[512]; // We compress them down to 1024 bytes of 16-bit data
-      
-      for(int i = 0; i < samplesRead; i++) {
-        // Shift right by 14 is the gold-standard algorithm to extract 24-bit INMP441 audio 
-        // into a flawless 16-bit space with zero clipping or static noise!
-        int32_t sample = ptr32[i] >> 14; 
+    // Upload stored disjoint blocks securely
+    size_t offset = 0;
+    while (offset < totalBytesRecorded) {
+        int blockIndex = offset / BLOCK_SIZE;
+        int offsetInBlock = offset % BLOCK_SIZE;
+        int spaceLeftInBlock = BLOCK_SIZE - offsetInBlock;
         
-        if (sample > 32767) sample = 32767;
-        if (sample < -32768) sample = -32768;
-        chunk16[i] = (int16_t)sample;
-      }
-      
-      int bytesToSend = samplesRead * 2; // 2 bytes per 16-bit sample
-      if (totalBytesRead + bytesToSend > numBytes) {
-        bytesToSend = numBytes - totalBytesRead; // Trim exact length
-      }
-      
-      clientAudio.write((uint8_t*)chunk16, bytesToSend);
-      totalBytesRead += bytesToSend;
+        int bytesRemainingToUpload = totalBytesRecorded - offset;
+        int sendSize = (bytesRemainingToUpload < spaceLeftInBlock) ? bytesRemainingToUpload : spaceLeftInBlock;
+        
+        clientAudio.write(audioBlocks[blockIndex] + offsetInBlock, sendSize);
+        offset += sendSize;
     }
-    
-    Serial.printf("Streamed %u bytes directly to Render.\n", totalBytesRead);
-    
+
+    Serial.println("✅ Audio completely sent to the cloud.");
+
     long timeout = millis();
-    while (clientAudio.connected() && millis() - timeout < 10000) {
+    while (clientAudio.connected() && millis() - timeout < 7000) {
       if (clientAudio.available()) {
-        Serial.print((char)clientAudio.read());
+        clientAudio.read();
         timeout = millis();
       }
     }
-    Serial.println("\n[UPLOAD] Audio Streamed to Render Successfully!");
+    Serial.println("[UPLOAD] Pipeline response received.");
   } else {
-    Serial.println("[UPLOAD] Audio server connection failed! Hardware limit reached.");
+    Serial.println("❌ [UPLOAD] Audio server connection failed! Check WiFi or Server.");
+  }
+
+  // Free MEMORY cleanly back to FreeRTOS!
+  for(int i = 0; i < blocksAllocated; i++) {
+      free(audioBlocks[i]);
   }
 }

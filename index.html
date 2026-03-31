@@ -370,6 +370,20 @@
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
       }
 
+      .module-card.module-card-wide {
+        grid-column: span 3;
+        aspect-ratio: auto;
+        padding: 16px 20px;
+        flex-direction: row;
+        justify-content: space-evenly;
+        height: 70px;
+        cursor: default;
+      }
+      
+      .module-card.module-card-wide:active {
+        transform: none;
+      }
+
       .card-icon svg {
         width: 24px;
         height: 24px;
@@ -1854,16 +1868,7 @@
       <div class="cards-grid" id="cardsGrid"></div>
     </div>
 
-    <div class="system-log" id="systemLog"></div>
 
-    <div class="hw-status-widget" id="hwStatusWidget">
-      <div class="hw-status-item">
-        <div class="hw-dot" id="dotCam"></div> CAM
-      </div>
-      <div class="hw-status-item">
-        <div class="hw-dot" id="dotMic"></div> MIC
-      </div>
-    </div>
 
     <nav class="bottom-nav">
       <div class="nav-item active" data-tab="home" onclick="switchTab(this)">
@@ -2040,6 +2045,20 @@
 `;
         cardsGrid.appendChild(card);
       });
+
+      // Append HW Status Tile spans 3 columns
+      const hwCard = document.createElement("div");
+      hwCard.className = "module-card module-card-wide";
+      hwCard.id = "hwStatusTile";
+      hwCard.innerHTML = `
+        <div class="hw-status-item" style="font-size: 13px; color: var(--accent); display: flex; align-items: center; gap: 8px;">
+          <div class="hw-dot" id="dotCam"></div> ESP32-CAM
+        </div>
+        <div class="hw-status-item" style="font-size: 13px; color: var(--accent); display: flex; align-items: center; gap: 8px;">
+          <div class="hw-dot" id="dotMic"></div> ESP32-MIC
+        </div>
+      `;
+      cardsGrid.appendChild(hwCard);
 
       let activeModal = null;
       let modalIntervals = [];
@@ -3092,34 +3111,7 @@
         else if (tab === "settings") openModal("personalization");
       }
 
-      const logMessages = [
-        "Neural engine initialized",
-        "Edge processors online",
-        "Object model loaded (v3.2)",
-        "GPS signal acquired",
-        "Cloud sync complete",
-        "Battery optimization active",
-        "Haptic feedback calibrated",
-        "Voice engine ready",
-        "Safety protocols engaged",
-        "Sensor fusion active",
-      ];
 
-      let logIndex = 0;
-      function showSystemLog() {
-        const container = document.getElementById("systemLog");
-        const toast = document.createElement("div");
-        toast.className = "log-toast";
-        const now = new Date();
-        const time = now.toTimeString().slice(0, 8);
-        toast.textContent = `[${time}] ${logMessages[logIndex % logMessages.length]}`;
-        container.appendChild(toast);
-        logIndex++;
-        setTimeout(() => toast.remove(), 3200);
-      }
-
-      setInterval(showSystemLog, 5000);
-      setTimeout(showSystemLog, 1500);
 
       const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
       const months = [
@@ -3370,9 +3362,20 @@ function navSOS(el) {
              const data = JSON.parse(event.data);
              if (data.event === "HARDWARE_BTN_TOUCHED") {
                const micBtn = document.getElementById('micBtn');
-               if (micBtn) {
-                 console.log("[GhostClick] ESP32 ordered a remote UI Click!");
-                 micBtn.click();
+               if (micBtn) micBtn.classList.add('recording');
+             } else if (data.event === "HARDWARE_BTN_RELEASED") {
+               const micBtn = document.getElementById('micBtn');
+               if (micBtn) micBtn.classList.remove('recording');
+             } else if (data.event === "AUDIO_RESULT") {
+               const chatData = data.data;
+               const micBtn = document.getElementById('micBtn');
+               if (micBtn) micBtn.classList.remove('recording');
+
+               if (typeof addChatMessage === 'function') addChatMessage("user", chatData.transcript);
+               if (typeof RouterEngine !== 'undefined') {
+                   RouterEngine.dispatch(chatData.transcript);
+               } else if (typeof addChatMessage === 'function') {
+                   addChatMessage("ai", chatData.text);
                }
              }
            };

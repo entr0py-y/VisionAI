@@ -483,6 +483,11 @@ app.post('/api/pi/audio-input', express.raw({ type: 'application/octet-stream', 
       console.log(`[DEBUG] Forwarding ESP32 result directly to Webpage UI!`);
       hardwareAudioDeferredResponse.json(finalData);
       hardwareAudioDeferredResponse = null;
+    } else {
+      console.log(`[DEBUG] Broadcasting ESP32 STT via SSE!`);
+      streamClients.forEach(client => {
+        client.write(`data: {"event": "AUDIO_RESULT", "data": ${JSON.stringify(finalData)}}\n\n`);
+      });
     }
 
     // STEP 5: RESPONSE (Send a simple 200 OK back to the ESP32 so it doesn't hang)
@@ -601,6 +606,14 @@ app.post('/api/pi/button-pressed', (req, res) => {
   console.log('[API] ESP32 Physical Button Touched! Alerting Website UI via SSE Streams...');
   streamClients.forEach(client => {
     client.write(`data: {"event": "HARDWARE_BTN_TOUCHED"}\n\n`);
+  });
+  res.json({ success: true });
+});
+
+app.post('/api/pi/button-released', (req, res) => {
+  console.log('[API] ESP32 Physical Button Released! Alerting Website UI via SSE Streams...');
+  streamClients.forEach(client => {
+    client.write(`data: {"event": "HARDWARE_BTN_RELEASED"}\n\n`);
   });
   res.json({ success: true });
 });
