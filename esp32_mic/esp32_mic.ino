@@ -183,9 +183,11 @@ void recordToRAMAndSend(bool isRemotelyTriggered) {
                 Serial.println("⚠️ Hard limit reached! Capping block allocations.");
                 allocationFailed = true; break;
             }
-            // Strict Firewall: Guarantee minimum 65KB heap memory reserved strictly for the SSL Handshake Upload!
-            if (ESP.getFreeHeap() < 65000) {
-                Serial.println("⚠️ Low Memory Firewall Triggered! Capping recording length to guarantee successful Upload.");
+            // Strict Anti-Fragmentation Firewall: 
+            // The TLS SSL Certificate Engine natively requires a SINGLE CONTIGUOUS ~42KB hole in the RAM to process Handshakes.
+            // If we check getMaxAllocHeap(), we guarantee we NEVER fragment that specific hole!
+            if (ESP.getMaxAllocHeap() < 65000) {
+                Serial.println("⚠️ Anti-Fragmentation Firewall Triggered! Capping recording to preserve contiguous SSL hole.");
                 allocationFailed = true; break;
             }
             
