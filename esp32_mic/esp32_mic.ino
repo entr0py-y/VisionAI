@@ -24,6 +24,7 @@ const int serverPort = 443;
 // EXTERNAL TOUCH BUTTON
 // ===========================
 #define TOUCH_PIN 13
+#define LED_BUILTIN 2 // Most ESP32 Dev Boards have a blue LED on GPIO 2
 
 void setup() {
   Serial.begin(115200);
@@ -42,6 +43,13 @@ void setup() {
   Serial.println("\nWiFi Connected!");
   Serial.print("IP Address: ");
   Serial.println(WiFi.localIP());
+
+  // Blink internal LED thrice to signal system is Online and Ready
+  pinMode(LED_BUILTIN, OUTPUT);
+  for(int i=0; i<3; i++) {
+    digitalWrite(LED_BUILTIN, HIGH); delay(150);
+    digitalWrite(LED_BUILTIN, LOW); delay(150);
+  }
 
   // 2. CONFIGURE I2S MIC
   i2s_config_t i2s_config = {
@@ -150,6 +158,7 @@ void recordToRAMAndSend(bool isRemotelyTriggered) {
   const size_t maxDurationBytes = 96000; // Hard limit 3.0 seconds
 
   Serial.println("🔴 STREAMING AUDIO LIVE TO RENDER (Chunked)...");
+  digitalWrite(LED_BUILTIN, HIGH); // PHYSICAL INDICATOR: TURN ON (Speak Now)
 
   while (totalBytesRecorded < maxDurationBytes) {
       uint8_t chunk32[2048]; // 512 samples
@@ -179,6 +188,7 @@ void recordToRAMAndSend(bool isRemotelyTriggered) {
 
   // End the Chunked transfer with a 0 byte slice
   persistentStatusClient.print("0\r\n\r\n");
+  digitalWrite(LED_BUILTIN, LOW); // PHYSICAL INDICATOR: TURN OFF (Stop Speaking)
   
   Serial.printf("⏹️ LIVE STREAM CONCLUDED. Securely beamed %u bytes!\n", totalBytesRecorded);
   Serial.println("✅ Audio successfully bridged to Cloud Transcriber. Waiting for API...");
