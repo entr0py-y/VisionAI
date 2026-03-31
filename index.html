@@ -3365,6 +3365,12 @@ function navSOS(el) {
              if (data.event === "HARDWARE_BTN_TOUCHED") {
                const micBtn = document.getElementById('micBtn');
                if (micBtn) micBtn.classList.add('recording');
+               
+               // Auto-switch to AI Chat tab when physical button is touched
+               const aiTab = document.querySelector('.nav-item[data-tab="ai"]');
+               if (aiTab && !aiTab.classList.contains('active')) {
+                 switchTab(aiTab);
+               }
              } else if (data.event === "HARDWARE_BTN_RELEASED") {
                const micBtn = document.getElementById('micBtn');
                if (micBtn) micBtn.classList.remove('recording');
