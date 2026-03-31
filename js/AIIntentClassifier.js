@@ -58,7 +58,7 @@ const AIIntentClassifier = (() => {
   const PLACE_SEARCH_KW = [
     'nearest', 'closest', 'near me', 'nearby',
     'where is the', 'where is a', 'find a ', 'find the ',
-    'is there a ', 'is there an ',
+    'is there a ', 'is there an ', 'how far is', 'distance to'
   ];
 
   /**
@@ -99,14 +99,21 @@ const AIIntentClassifier = (() => {
     }
 
     // Location info — user asking about current position
-    if (LOCATION_INFO_KW.some(k => lower.includes(k))) {
+    // Exclude if asking for distance or routing to another place
+    const isDistanceQuery = /how\s+far|distance|route|navigate|directions|where\s+is/i.test(lower);
+    if (!isDistanceQuery && LOCATION_INFO_KW.some(k => lower.includes(k))) {
       return { intent: 'LOCATION_INFO', destination: null, confidence: 'pattern' };
     }
 
     // Place search — info about nearby place, no navigation
     if (PLACE_SEARCH_KW.some(k => lower.includes(k))) {
-      const pm = msg.match(/(?:nearest|closest|find\s+(?:a|the)?|where\s+is\s+(?:the|a|an)?|near\s+me)\s+(.+)/i);
-      const dest = pm ? pm[1].replace(/[?.!,;]+$/, '').trim() : null;
+      const pm = msg.match(/(?:nearest|closest|find\s+(?:a|the)?|where\s+is\s+(?:the|a|an)?|near\s+me|how\s+far\s+is\s+(?:the|a|an)?|distance\s+to\s+(?:the|a|an)?)\s+(.+)/i);
+      let dest = pm ? pm[1] : null;
+      if (dest) {
+          dest = dest.replace(/\b(?:is\s+)?from\s+(?:my\s+location|here|me)\b/i, '')
+                     .replace(/[?.!,;]+$/, '')
+                     .trim();
+      }
       return { intent: 'PLACE_SEARCH', destination: dest, confidence: 'pattern' };
     }
 

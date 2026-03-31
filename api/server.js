@@ -176,16 +176,22 @@ app.post('/api/ai/classify', (req, res) => {
     const locationInfoKw = ['where am i', 'my location', 'current location',
       'my current location', 'what is my location', 'where are we',
       'what city am i in', 'what area am i in'];
-    if (locationInfoKw.some(k => lower.includes(k))) {
+    const isDistanceQuery = /how\s+far|distance|route|navigate|directions|where\s+is/i.test(lower);
+    if (!isDistanceQuery && locationInfoKw.some(k => lower.includes(k))) {
       return res.json({ intent: 'LOCATION_INFO', destination: null });
     }
 
     // ── PLACE_SEARCH — nearby places, no navigation ──────────────────────
     const placeSearchKw = ['nearest', 'closest', 'near me', 'nearby',
-      'where is the', 'where is a', 'find a ', 'find the ', 'is there a ', 'is there an '];
+      'where is the', 'where is a', 'find a ', 'find the ', 'is there a ', 'is there an ', 'how far is', 'distance to'];
     if (placeSearchKw.some(k => lower.includes(k))) {
-      const pm = message.match(/(?:nearest|closest|find\s+(?:a|the)?|where\s+is\s+(?:the|a|an)?|near\s+me)\s+(.+)/i);
-      const dest = pm ? pm[1].replace(/[?.!,;]+$/, '').trim() : null;
+      const pm = message.match(/(?:nearest|closest|find\s+(?:a|the)?|where\s+is\s+(?:the|a|an)?|near\s+me|how\s+far\s+is\s+(?:the|a|an)?|distance\s+to\s+(?:the|a|an)?)\s+(.+)/i);
+      let dest = pm ? pm[1] : null;
+      if (dest) {
+          dest = dest.replace(/\b(?:is\s+)?from\s+(?:my\s+location|here|me)\b/i, '')
+                     .replace(/[?.!,;]+$/, '')
+                     .trim();
+      }
       return res.json({ intent: 'PLACE_SEARCH', destination: dest });
     }
 
