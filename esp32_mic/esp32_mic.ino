@@ -127,28 +127,19 @@ void loop() {
 }
 
 void recordToRAMAndSend(bool isRemotelyTriggered) {
-  // Wipe background poll tunnel to fully recover 42KB contiguous RAM hole
-  persistentStatusClient.stop();
-  delay(10);
-
-  Serial.println("Establishing LIVE Streaming HTTPS connection...");
-  WiFiClientSecure clientAudio;
-  clientAudio.setInsecure();
-
-  // TLS handshake smoothly slots perfectly into the 42KB crater we just freed!
-  if (!clientAudio.connect(serverIp, serverPort)) {
-     Serial.println("❌ SSL Connection Failed! Check Wi-Fi!");
-     isStatusClientInit = false;
-     return;
+  // We instantly hijack the currently idling background polling TLS Socket!
+  // This physically bypasses the 1.5-second mbedTLS handshaking latency entirely!
+  if (!persistentStatusClient.connected()) {
+     Serial.println("Reconnecting persistent tunnel...");
+     persistentStatusClient.connect(serverIp, serverPort);
   }
-  
-  // Fire off HTTP POST headers. 
-  // We use Transfer-Encoding: chunked to stream LIVE data without requiring the Content-Length!
-  clientAudio.print("POST /api/pi/audio-input HTTP/1.1\r\n");
-  clientAudio.print("Host: " + String(serverIp) + "\r\n");
-  clientAudio.print("Connection: close\r\n"); 
-  clientAudio.print("Content-Type: application/octet-stream\r\n");
-  clientAudio.print("Transfer-Encoding: chunked\r\n\r\n");
+
+  // Fire off HTTP POST headers directly over the hot tunnel. 
+  persistentStatusClient.print("POST /api/pi/audio-input HTTP/1.1\r\n");
+  persistentStatusClient.print("Host: " + String(serverIp) + "\r\n");
+  persistentStatusClient.print("Connection: keep-alive\r\n"); 
+  persistentStatusClient.print("Content-Type: application/octet-stream\r\n");
+  persistentStatusClient.print("Transfer-Encoding: chunked\r\n\r\n");
 
   i2s_zero_dma_buffer(I2S_PORT);
   size_t totalBytesRecorded = 0;
@@ -175,23 +166,23 @@ void recordToRAMAndSend(bool isRemotelyTriggered) {
       int bytesToSend = samplesRead * 2;
       
       // HTTP Chunked streaming format natively encapsulates fragments dynamically!
-      clientAudio.printf("%X\r\n", bytesToSend);
-      clientAudio.write((uint8_t*)chunk16, bytesToSend);
-      clientAudio.print("\r\n");
+      persistentStatusClient.printf("%X\r\n", bytesToSend);
+      persistentStatusClient.write((uint8_t*)chunk16, bytesToSend);
+      persistentStatusClient.print("\r\n");
       
       totalBytesRecorded += bytesToSend;
   }
 
   // End the Chunked transfer with a 0 byte slice
-  clientAudio.print("0\r\n\r\n");
+  persistentStatusClient.print("0\r\n\r\n");
   
   Serial.printf("⏹️ LIVE STREAM CONCLUDED. Securely beamed %u bytes!\n", totalBytesRecorded);
   Serial.println("✅ Audio successfully bridged to Cloud Transcriber. Waiting for API...");
 
   long timeout = millis();
-  while (clientAudio.connected() && millis() - timeout < 7000) {
-    if (clientAudio.available()) {
-      clientAudio.read();
+  while (persistentStatusClient.connected() && millis() - timeout < 7000) {
+    if (persistentStatusClient.available()) {
+      persistentStatusClient.read();
       timeout = millis();
     }
   }
