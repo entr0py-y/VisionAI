@@ -373,6 +373,12 @@ app.post('/api/pi/audio-input', express.raw({ type: 'application/octet-stream', 
   hardwareRecordingRequest = false;
   console.log(`\n[HARDWARE] 🎙️ Audio/Text request received from ESP/Pi! IP: ${req.ip}`);
   
+  // 📢 ALERT THE FRONTEND: Start recording UI (Ghost Click)
+  // This automatically opens the Chat Modal as soon as the ESP32 connects!
+  streamClients.forEach(client => {
+    client.write(`data: {"event": "HARDWARE_BTN_TOUCHED"}\n\n`);
+  });
+  
   try {
     let audioBuffer;
 

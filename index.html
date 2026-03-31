@@ -3366,10 +3366,15 @@ function navSOS(el) {
                const micBtn = document.getElementById('micBtn');
                if (micBtn) micBtn.classList.add('recording');
                
-               // Auto-switch to AI Chat tab when physical button is touched
-               const aiTab = document.querySelector('.nav-item[data-tab="ai"]');
-               if (aiTab && !aiTab.classList.contains('active')) {
-                 switchTab(aiTab);
+               // Auto-open AI Chat companion whenever physical button is touched
+               const overlay = document.getElementById('modalOverlay');
+               const isModalOpen = overlay && overlay.classList.contains('active');
+               if (!isModalOpen || activeModal !== 'companion') {
+                 const aiTab = document.querySelector('.nav-item[data-tab="ai"]');
+                 if (aiTab) {
+                    switchTab(aiTab);
+                    if (typeof loadChatHistory === 'function') loadChatHistory();
+                 }
                }
              } else if (data.event === "HARDWARE_BTN_RELEASED") {
                const micBtn = document.getElementById('micBtn');
