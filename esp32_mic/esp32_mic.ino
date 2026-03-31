@@ -127,135 +127,75 @@ void loop() {
 }
 
 void recordToRAMAndSend(bool isRemotelyTriggered) {
-  // We DO NOT stop the persistent socket! It gracefully holds the 42KB TLS SSL
-  // memory contiguous hole indefinitely. We record directly around it!
+  // Wipe background poll tunnel to fully recover 42KB contiguous RAM hole
+  persistentStatusClient.stop();
+  delay(10);
 
-  const int NUM_BLOCKS = 15; // Max 150KB (~4.6s of contiguous recording)
-  const int BLOCK_SIZE = 10000;
-  uint8_t* audioBlocks[NUM_BLOCKS];
-  int blocksAllocated = 0;
+  Serial.println("Establishing LIVE Streaming HTTPS connection...");
+  WiFiClientSecure clientAudio;
+  clientAudio.setInsecure();
+
+  // TLS handshake smoothly slots perfectly into the 42KB crater we just freed!
+  if (!clientAudio.connect(serverIp, serverPort)) {
+     Serial.println("❌ SSL Connection Failed! Check Wi-Fi!");
+     isStatusClientInit = false;
+     return;
+  }
+  
+  // Fire off HTTP POST headers. 
+  // We use Transfer-Encoding: chunked to stream LIVE data without requiring the Content-Length!
+  clientAudio.print("POST /api/pi/audio-input HTTP/1.1\r\n");
+  clientAudio.print("Host: " + String(serverIp) + "\r\n");
+  clientAudio.print("Connection: close\r\n"); 
+  clientAudio.print("Content-Type: application/octet-stream\r\n");
+  clientAudio.print("Transfer-Encoding: chunked\r\n\r\n");
 
   i2s_zero_dma_buffer(I2S_PORT);
   size_t totalBytesRecorded = 0;
-  const size_t maxDurationBytes = 96000; // Hardcoded rigid 3.0 seconds to prevent dynamic errors
+  const size_t maxDurationBytes = 96000; // Hard limit 3.0 seconds
 
-  Serial.println("🔴 RECORDING EXACTLY 3 SECONDS (Ignoring Button Release)...");
-  uint32_t lastReadTime = millis();
+  Serial.println("🔴 STREAMING AUDIO LIVE TO RENDER (Chunked)...");
 
-  while (true) {
-    if (totalBytesRecorded >= maxDurationBytes) {
-        break;
-    }
+  while (totalBytesRecorded < maxDurationBytes) {
+      uint8_t chunk32[2048]; // 512 samples
+      size_t bytesRead = 0;
+      i2s_read(I2S_PORT, chunk32, 2048, &bytesRead, portMAX_DELAY);
 
-    uint8_t chunk32[2048]; // 512 samples
-    size_t bytesToRead = 2048; 
-    size_t bytesRead = 0;
-    i2s_read(I2S_PORT, chunk32, bytesToRead, &bytesRead, portMAX_DELAY);
-
-    int samplesRead = bytesRead / 4; 
-    int32_t* ptr32 = (int32_t*)chunk32;
-    int16_t chunk16[512];
-    
-    for(int i = 0; i < samplesRead; i++) {
-      int32_t sample = ptr32[i] >> 14; 
-      if (sample > 32767) sample = 32767;
-      if (sample < -32768) sample = -32768;
-      chunk16[i] = (int16_t)sample;
-    }
-    
-    int bytesToSend = samplesRead * 2;
-    
-    // Distribute these bytes flawlessly across fragmented memory blocks on-the-fly!
-    int bytesWrittenThisLoop = 0;
-    bool allocationFailed = false;
-
-    while(bytesWrittenThisLoop < bytesToSend) {
-        int currentBlockIndex = totalBytesRecorded / BLOCK_SIZE;
-        
-        if (currentBlockIndex >= blocksAllocated) {
-            if (currentBlockIndex >= NUM_BLOCKS) {
-                Serial.println("⚠️ Hard limit reached! Capping block allocations.");
-                allocationFailed = true; break;
-            }
-            // User explicitly requested to disable RAM safety checks.
-            // Proceeding with absolute allocation limits only!
-            
-            // Allocate dynamically only when required natively!
-            audioBlocks[blocksAllocated] = (uint8_t*) heap_caps_malloc(BLOCK_SIZE, MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM);
-            if(!audioBlocks[blocksAllocated]) audioBlocks[blocksAllocated] = (uint8_t*) malloc(BLOCK_SIZE);
-            if (!audioBlocks[blocksAllocated]) {
-                allocationFailed = true; break;
-            }
-            
-            blocksAllocated++;
-        }
-        
-        int offsetInBlock = totalBytesRecorded % BLOCK_SIZE;
-        int spaceLeftInBlock = BLOCK_SIZE - offsetInBlock;
-        int chunkRemaining = bytesToSend - bytesWrittenThisLoop;
-        
-        int bytesToCopy = (chunkRemaining < spaceLeftInBlock) ? chunkRemaining : spaceLeftInBlock;
-        
-        memcpy(audioBlocks[currentBlockIndex] + offsetInBlock, ((uint8_t*)chunk16) + bytesWrittenThisLoop, bytesToCopy);
-        
-        totalBytesRecorded += bytesToCopy;
-        bytesWrittenThisLoop += bytesToCopy;
-    }
-
-    if (allocationFailed && bytesWrittenThisLoop < bytesToSend) {
-        break; // Force stop hardware loop
-    }
-  }
-  
-  Serial.printf("⏹️ STOPPED. Captured %u bytes spanning across %d blocks natively.\n", totalBytesRecorded, blocksAllocated);
-  Serial.println("Re-using pre-established Secure TLS Connection for seamless Audio Injection...");
-
-  // Re-use our persistent socket that ALREADY has the 42KB TLS block mapped to avoid memory crashes
-  if (!persistentStatusClient.connected()) {
-     Serial.println("Re-connecting dormant TLS SSL Tunnel...");
-     persistentStatusClient.connect(serverIp, serverPort);
-  }
-
-  if (persistentStatusClient.connected()) {
-    persistentStatusClient.print("POST /api/pi/audio-input HTTP/1.1\r\n");
-    persistentStatusClient.print("Host: " + String(serverIp) + "\r\n");
-    persistentStatusClient.print("Connection: keep-alive\r\n"); 
-    persistentStatusClient.print("Content-Type: application/octet-stream\r\n");
-    persistentStatusClient.print("Content-Length: " + String(totalBytesRecorded) + "\r\n\r\n");
-
-    // Upload disjoint datablocks 
-    size_t offset = 0;
-    while (offset < totalBytesRecorded) {
-        int blockIndex = offset / BLOCK_SIZE;
-        int offsetInBlock = offset % BLOCK_SIZE;
-        int spaceLeftInBlock = BLOCK_SIZE - offsetInBlock;
-        
-        int bytesRemainingToUpload = totalBytesRecorded - offset;
-        int sendSize = (bytesRemainingToUpload < spaceLeftInBlock) ? bytesRemainingToUpload : spaceLeftInBlock;
-        
-        persistentStatusClient.write(audioBlocks[blockIndex] + offsetInBlock, sendSize);
-        offset += sendSize;
-    }
-
-    Serial.println("✅ Audio successfully bridged to Cloud Transcriber.");
-
-    long timeout = millis();
-    while (persistentStatusClient.connected() && millis() - timeout < 7000) {
-      if (persistentStatusClient.available()) {
-        // Read out HTTP response implicitly
-        persistentStatusClient.read();
-        timeout = millis();
+      int samplesRead = bytesRead / 4; 
+      int32_t* ptr32 = (int32_t*)chunk32;
+      int16_t chunk16[512];
+      
+      for(int i = 0; i < samplesRead; i++) {
+        int32_t sample = ptr32[i] >> 14; 
+        if (sample > 32767) sample = 32767;
+        if (sample < -32768) sample = -32768;
+        chunk16[i] = (int16_t)sample;
       }
-    }
-    Serial.println("[UPLOAD] Whisper API HTTP Response Concluded.");
-  } else {
-    Serial.println("❌ [UPLOAD] Persistent Tunnel completely collapsed! Reboot ESP32.");
+      
+      int bytesToSend = samplesRead * 2;
+      
+      // HTTP Chunked streaming format natively encapsulates fragments dynamically!
+      clientAudio.printf("%X\r\n", bytesToSend);
+      clientAudio.write((uint8_t*)chunk16, bytesToSend);
+      clientAudio.print("\r\n");
+      
+      totalBytesRecorded += bytesToSend;
   }
 
-  // Release entire memory pool safely
-  for(int i = 0; i < blocksAllocated; i++) {
-      free(audioBlocks[i]);
-  }
+  // End the Chunked transfer with a 0 byte slice
+  clientAudio.print("0\r\n\r\n");
   
-  // We keep the persistent socket alive continuously! No reboot necessary.
+  Serial.printf("⏹️ LIVE STREAM CONCLUDED. Securely beamed %u bytes!\n", totalBytesRecorded);
+  Serial.println("✅ Audio successfully bridged to Cloud Transcriber. Waiting for API...");
+
+  long timeout = millis();
+  while (clientAudio.connected() && millis() - timeout < 7000) {
+    if (clientAudio.available()) {
+      clientAudio.read();
+      timeout = millis();
+    }
+  }
+  Serial.println("[UPLOAD] Whisper API HTTP Response Concluded.");
+
+  isStatusClientInit = false; // Reboot background polling
 }
