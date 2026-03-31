@@ -138,19 +138,14 @@ void recordToRAMAndSend(bool isRemotelyTriggered) {
 
   i2s_zero_dma_buffer(I2S_PORT);
   size_t totalBytesRecorded = 0;
-  const size_t maxRemoteBytes = 96000; // 3.0 seconds if requested from web
+  const size_t maxDurationBytes = 96000; // Hardcoded rigid 3.0 seconds to prevent dynamic errors
 
-  Serial.println("🔴 RECORDING INSTANTLY (Dynamic Allocation)...");
+  Serial.println("🔴 RECORDING EXACTLY 3 SECONDS (Ignoring Button Release)...");
   uint32_t lastReadTime = millis();
 
   while (true) {
-    if (isRemotelyTriggered) {
-       if (totalBytesRecorded >= maxRemoteBytes) break;
-    } else {
-       if (digitalRead(TOUCH_PIN) == LOW) {
-          // Guarantee at least 0.5s is recorded so HTTP doesn't reject small payloads
-          if (millis() - lastReadTime > 500) break; 
-       }
+    if (totalBytesRecorded >= maxDurationBytes) {
+        break;
     }
 
     uint8_t chunk32[2048]; // 512 samples
