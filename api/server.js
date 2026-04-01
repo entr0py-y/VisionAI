@@ -474,10 +474,18 @@ app.post('/api/pi/audio-input', express.raw({ type: 'application/octet-stream', 
     let aiResponse = "";
     
     try {
-      console.log(`[DEBUG] Running AI Reasoning via Llama 3.2 11B...`);
+      console.log(`[DEBUG] Running AI Reasoning via Llama 3.3...`);
+      const now = new Date();
+      // Adjust to IST as that seems to be the user's timezone from the logs
+      const timeStr = now.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
+      const dateStr = now.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long', month: 'long', day: 'numeric' });
+      
       const chatPromise = client.chat.completions.create({
         model: 'llama-3.3-70b-versatile',
-        messages: [{ role: 'user', content: `The user said: "${transcript}". Reply to their request concisely in less than 20 words.` }],
+        messages: [
+          { role: 'system', content: `You are the Vision AID assistant. The current time is ${timeStr} and today is ${dateStr}. Respond concisely (under 20 words). The user might call you 'Jenny' or other names; just respond helpfully as their assistant.` },
+          { role: 'user', content: transcript }
+        ],
         temperature: 0.7,
         max_tokens: 50,
       });

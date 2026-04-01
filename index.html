@@ -2267,9 +2267,13 @@
         let prompt =
           "You are the Vision AID assistant. Your job is to help visually impaired users navigate the application, explain features, provide guidance, and respond with clear, concise, accessible instructions.\n\nVision AID features include:\n- Smart Vision Engine: Real-time object detection, obstacle estimation, motion tracking\n- Mobility Intelligence: GPS navigation, turn-by-turn guidance, crowd density, POI finder\n- Visual Recognition: OCR scanning, currency recognition, face detection, QR scanner\n- Guardian Safety: Emergency SOS, fall detection, risk monitoring\n- AI Companion: This chat system with voice, wake word, offline and cloud modes\n- Personalization: Alert sensitivity, speech speed, haptic intensity, user profiles\n\nKeep responses concise and easy to understand. Use simple language.";
         
+        const now = new Date();
+        const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const dateStr = now.toLocaleDateString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+        
         const locName = (document.getElementById("widgetLocation") && document.getElementById("widgetLocation").textContent) || "Unknown location";
         const coords = (document.getElementById("widgetCoords") && document.getElementById("widgetCoords").textContent) || "Unknown coordinates";
-        prompt += `\n\nContext - The user's current device location is: ${locName} (Coordinates: ${coords}). If the user asks where they are or for guidance, use this information.`;
+        prompt += `\n\nContext - The user's current device location is: ${locName} (Coordinates: ${coords}). The current time is ${timeStr} and today is ${dateStr}. If the user asks where they are, what time it is, or today's date, use this information.`;
 
         if (companionState.emotionalSupport) {
           prompt +=
