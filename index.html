@@ -3370,6 +3370,14 @@ function navSOS(el) {
                const micBtn = document.getElementById('micBtn');
                if (micBtn) micBtn.classList.add('recording');
                
+               // Stop any ongoing TTS immediately
+               if (window.speechSynthesis) window.speechSynthesis.cancel();
+               
+               // Interrupt any ongoing Chat Generation (fetch)
+               if (window.currentChatAbortCtrl) {
+                 try { window.currentChatAbortCtrl.abort(); } catch(e) {}
+               }
+               
                // Auto-open AI Chat companion whenever physical button is touched
                const overlay = document.getElementById('modalOverlay');
                const isModalOpen = overlay && overlay.classList.contains('active');
