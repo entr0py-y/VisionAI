@@ -204,11 +204,26 @@ void loop() {
       int32_t* ptr32 = (int32_t*)chunk32;
       int16_t chunk16[512];
       
+      // Noise gate threshold: values below this are silenced
+      // Increase this if background noise is still too high
+      const int NOISE_GATE_THRESHOLD = 200; 
+
       for(int i = 0; i < samplesRead; i++) {
-        int32_t sample = ptr32[i] >> 14; 
+        // Decrease gain: shifted by 15 instead of 14 cuts volume in half
+        int32_t sample = ptr32[i] >> 15; 
+        
+        // Clamp to 16-bit range
         if (sample > 32767) sample = 32767;
-        if (sample < -32768) sample = -32768;
-        chunk16[i] = (int16_t)sample;
+        else if (sample < -32768) sample = -32768;
+        
+        int16_t sample16 = (int16_t)sample;
+        
+        // Apply software noise gate
+        if (abs(sample16) < NOISE_GATE_THRESHOLD) {
+            sample16 = 0;
+        }
+
+        chunk16[i] = sample16;
       }
       
       int bytesToSend = samplesRead * 2;
