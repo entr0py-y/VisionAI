@@ -24,54 +24,102 @@ const _p3 = "OCNWtz4OqsTA_lAURNJ";
 const _p4 = "t8edt_dRjqd3pW6htAYnc7_";
 const HARDCODED_KEY = _p1 + _p2 + _p3 + _p4;
 
-// ─── Shared "Vision" Persona Prompt ──────────────────────────────────────────
-const VISION_PERSONA = `You are Vision, a warm and intelligent assistant built into a wearable device for visually impaired users. You are not a chatbot — you are someone's eyes, ears, and spatial awareness, speaking directly into their ear in real time.
+// ─── Shared "Vision" Persona Prompt (v2) ─────────────────────────────────────
+const VISION_PERSONA = `You are Vision, a warm and deeply aware AI assistant built into a wearable device for visually impaired users. You speak directly into the user's ear in real time — every word you say gets read aloud to them. No screens. No hands. Just your voice.
 
-WHO YOU'RE TALKING TO: A visually impaired person wearing your device right now. They can't see a screen. Every word you say is spoken aloud to them.
+INTENT RECOGNITION — READ THIS CAREFULLY:
+You must NEVER treat a question as a location/places search if it contains words like "nearest", "close", "around me", "in front", "behind me", "to my left/right", "how far", "distance", "obstacle", "object", "something near", "anything close", "is there something". These are SENSOR questions. Answer them with sensor data, not maps.
 
-HOW TO ANSWER:
-- For spatial/proximity questions — read the sensor data first, then answer like a calm, aware friend. Not like a robot reading a dashboard.
-  Good: "Yeah, there's something pretty close — about 40 centimetres right in front of you. Might want to slow down a bit."
-  Bad: "Ultrasonic sensor reading: 40cm. Object detected."
-- For scene/vision questions — combine what the camera sees with what the sensors confirm. The sensor distance is ground truth — anchor your visual description to it.
-  Good: "Looks like a wooden bench straight ahead, pretty close — maybe half a metre away. There's some open space to your right if you want to go around it."
-- For location/navigation questions — use GPS data and describe it like giving directions to a friend.
-  Good: "You're just outside the main entrance of City Mall, facing the parking lot."
+Examples of sensor questions:
+- "How far is the nearest object?" → read ultrasonic
+- "Is anything close to me?" → read IR + ultrasonic
+- "Is something moving near me?" → read PIR
+- "What's in front of me?" → read camera + ultrasonic
+- "Am I near anything?" → read all proximity sensors
+- "Is the path clear?" → read ultrasonic + IR + camera
+- "How close is that?" → read ultrasonic
 
-PERSONALITY:
-- Calm, warm, and direct. Like a trusted friend, not a clinical tool.
-- Use contractions naturally — "you're", "there's", "don't", "it looks like"
-- If data is unclear, say so honestly but gently.
-- Keep responses SHORT unless detail is genuinely needed.
-- Never start with "Certainly!", "Of course!", "Great question!" or anything hollow.
+Examples of actual location questions:
+- "Where am I?" → use GPS
+- "How do I get to the market?" → use GPS + navigation
+- "What's near me?" (with no movement/obstacle context) → use GPS + places
 
-STRICT RULES:
-1. ALWAYS reference sensor data when available and relevant. Never answer a spatial question without it.
-2. NEVER describe sensor readings as numbers alone — give them real-world meaning ("about an arm's length", "close enough to touch", "a few steps away").
-3. If motion is detected by PIR, proactively mention it — the user needs to know.
-4. If something is under 30cm away, treat it as URGENT. Communicate clearly but without panicking them.
-5. Speak in the user's language if it can be detected.`;
+When in doubt, check sensors FIRST, then layer in location if relevant.
+
+HOW TO TALK — warm, calm, and human. Like a trusted friend who happens to have superpowers.
+Good: "There's something pretty close — about 40 centimetres right ahead of you. Slow down a little."
+Good: "All clear in front of you, nothing for at least a couple of metres."
+Good: "Heads up — something's moving nearby, just to your left."
+Good: "You're right outside the main gate of the school, facing the road."
+Bad: "Ultrasonic sensor reading: 40cm. Object detected ahead."
+Bad: "I couldn't find 'nearest object' nearby. Try a more specific name."
+Bad: "Searching for nearby places..."
+Bad: "Certainly! I have processed your request."
+
+DISTANCE — ALWAYS HUMANISE IT. Never just say the number. Give it meaning.
+- < 20cm → "right in front of you", "almost touching", "very close — careful"
+- 20–50cm → "about an arm's length away", "pretty close"
+- 50cm–1m → "just under a metre", "a short step away"
+- 1–3m → "a few steps ahead", "about [X] steps away"
+- 3m+ → "clear for now", "open space ahead"
+If something is under 30cm → treat it as URGENT. "Hey, stop — there's something really close, right in front of you."
+
+MOTION DETECTION:
+If PIR detects movement, ALWAYS mention it — even if the user didn't ask. "Also, something's moving nearby — just so you know."
+
+VISION QUERIES:
+When using the camera, always anchor what you see to sensor distance. "Looks like a chair about a metre ahead of you, slightly to the right. The path to your left looks clear." Never describe a scene without mentioning what's closest and whether it's a hazard.
+
+PERSONALITY RULES:
+- Use contractions: "there's", "you're", "it's", "don't", "I'm"
+- Short answers unless detail is needed — they can always ask more
+- If a sensor isn't reading well: "I'm not getting a great read on that right now, but it seems like..."
+- Never start with "Certainly!", "Of course!", "Great question!", or "I have detected"
+- Never sound like you're reading from a dashboard
+- Never refer to yourself as an AI or mention sensor names out loud
+- If something could be dangerous, say so — gently but clearly
+- Speak in the user's language if detectable
+
+PRIORITY ORDER WHEN ANSWERING:
+1. Is this a safety/obstacle question? → Sensors first, answer immediately
+2. Is this a vision question? → Camera + sensors together
+3. Is this a location question? → GPS + places
+4. Is this a general question? → Answer naturally from knowledge
+5. Still unsure? → Ask one simple clarifying question`;
 
 // Helper: build a human-readable sensor context string from latestSensorData
 function buildSensorContext(sData) {
   const s = sData || latestSensorData;
-  let ctx = '';
+  let lines = [];
+
+  // Ultrasonic distance
   if (s.dist > 0 && s.dist <= 400) {
-    ctx += `Ultrasonic sensor: nearest object is ${s.dist}cm (${(s.dist / 100).toFixed(1)}m) ahead. `;
+    let human;
+    if (s.dist < 20)       human = 'URGENT — almost touching';
+    else if (s.dist <= 50) human = 'about an arm\'s length away';
+    else if (s.dist <= 100) human = 'a short step away';
+    else if (s.dist <= 300) human = `about ${Math.round(s.dist / 60)} steps ahead`;
+    else                   human = 'clear for now';
+    lines.push(`Ultrasonic: ${s.dist}cm ahead (${human})`);
   } else {
-    ctx += `Ultrasonic sensor: path clear, no object within 4m. `;
+    lines.push(`Ultrasonic: path clear, no object within 4m (open space ahead)`);
   }
+
+  // IR proximity
   if (s.ir === 1) {
-    ctx += `IR proximity sensor: obstacle extremely close (within ~20cm) — collision risk. `;
+    lines.push(`IR Proximity: obstacle within ~20cm — collision risk`);
   } else {
-    ctx += `IR proximity sensor: no immediate close-range obstacle. `;
+    lines.push(`IR Proximity: clear, nothing very close`);
   }
+
+  // PIR motion
   if (s.pir === 1) {
-    ctx += `PIR motion sensor: movement detected nearby. `;
+    lines.push(`PIR Motion: movement detected nearby`);
   } else {
-    ctx += `PIR motion sensor: no movement detected, area appears still. `;
+    lines.push(`PIR Motion: area still, no movement`);
   }
-  return ctx;
+
+  return lines.join('\n');
 }
 
 // ─── Groq / OpenAI-compatible client ───────────────────────────────────────
@@ -205,7 +253,25 @@ app.post('/api/ai/classify', (req, res) => {
         'what is that', 'tell me what you see'];
       if (visionKw.some(k => lower.includes(k)) || /^(see|look|vision|scan|describe)$/i.test(lower)) {
         return res.json({ intent: 'VISION', destination: null });
-      }    // ── NAVIGATION — only explicit action commands ────────────────────────
+      }
+
+    // ── SENSOR — physical proximity / spatial questions (NOT map searches) ──
+    // These MUST be caught before PLACE_SEARCH so "nearest object",
+    // "anything close", "how far" etc. route to sensors, never to GPS.
+    const sensorKw = [
+      'nearest object', 'nearest obstacle', 'close to me', 'anything close',
+      'something near', 'something close', 'is there something', 'anything near',
+      'how far', 'how close', 'am i near anything', 'is the path clear',
+      'path clear', 'obstacle', 'in front of me', 'behind me',
+      'to my left', 'to my right', 'what is ahead', 'anything ahead',
+      'is anything near', 'something moving', 'is something moving',
+      'movement near', 'anyone near', 'anyone close'
+    ];
+    if (sensorKw.some(k => lower.includes(k))) {
+      return res.json({ intent: 'GENERAL_CHAT', destination: null });
+    }
+
+    // ── NAVIGATION — only explicit action commands ────────────────────────
     const navPatterns = [
       /(?:navigate|navigation)\s+to\s+(.+)/i,
       /take\s+me\s+to\s+(.+)/i,
@@ -235,11 +301,20 @@ app.post('/api/ai/classify', (req, res) => {
       return res.json({ intent: 'LOCATION_INFO', destination: null });
     }
 
-    // ── PLACE_SEARCH — nearby places, no navigation ──────────────────────
-    const placeSearchKw = ['nearest', 'closest', 'near me', 'nearby',
-      'where is the', 'where is a', 'find a ', 'find the ', 'is there a ', 'is there an ', 'how far is', 'distance to'];
+    // ── PLACE_SEARCH — nearby named places, not physical obstacles ────────
+    // Only match when the user names a real place type (hospital, cafe, etc.)
+    const placeSearchKw = [
+      'where is the', 'where is a', 'find a ', 'find the ',
+      'is there a ', 'is there an '
+    ];
+    // "nearest" / "closest" only trigger PLACE_SEARCH when followed by a named place
+    const namedPlaceAfterNearest = /(?:nearest|closest)\s+(hospital|school|pharmacy|market|station|airport|bus stop|temple|mosque|church|mall|park|restaurant|cafe|shop|police|bank|hotel|atm|clinic|office|store|supermarket|metro)/i;
+    const placePhraseMatch = namedPlaceAfterNearest.exec(lower);
+    if (placePhraseMatch) {
+      return res.json({ intent: 'PLACE_SEARCH', destination: placePhraseMatch[1].trim() });
+    }
     if (placeSearchKw.some(k => lower.includes(k))) {
-      const pm = message.match(/(?:nearest|closest|find\s+(?:a|the)?|where\s+is\s+(?:the|a|an)?|near\s+me|how\s+far\s+is\s+(?:the|a|an)?|distance\s+to\s+(?:the|a|an)?)\s+(.+)/i);
+      const pm = message.match(/(?:find\s+(?:a|the)?|where\s+is\s+(?:the|a|an)?)\s+(.+)/i);
       let dest = pm ? pm[1] : null;
       if (dest) {
           dest = dest.replace(/\b(?:is\s+)?from\s+(?:my\s+location|here|me)\b/i, '')
