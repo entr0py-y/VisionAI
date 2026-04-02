@@ -54,12 +54,23 @@ const AIIntentClassifier = (() => {
     'what is my location', 'where are we', 'what city am i in', 'what area am i in',
   ];
 
+  /* ── SENSOR_KW: physical proximity queries (NOT map searches) ── */
+  const SENSOR_KW = [
+    'nearest object', 'nearest obstacle', 'close to me', 'anything close',
+    'something near', 'something close', 'is there something', 'anything near',
+    'how far', 'how close', 'am i near anything', 'is the path clear',
+    'path clear', 'obstacle', 'in front of me', 'behind me',
+    'to my left', 'to my right', 'what is ahead', 'anything ahead',
+    'is anything near', 'something moving', 'is something moving',
+    'movement near', 'anyone near', 'anyone close'
+  ];
+
   /* ── PLACE_SEARCH: nearby info queries — NO map, NO navigation ── */
   const PLACE_SEARCH_KW = [
-    'nearest', 'closest', 'near me', 'nearby',
     'where is the', 'where is a', 'find a ', 'find the ',
-    'is there a ', 'is there an ', 'how far is', 'distance to'
+    'is there a ', 'is there an '
   ];
+  const NAMED_PLACE_AFTER_NEAREST = /(?:nearest|closest)\s+(hospital|school|pharmacy|market|station|airport|bus stop|temple|mosque|church|mall|park|restaurant|cafe|shop|police|bank|hotel|atm|clinic|office|store|supermarket|metro)/i;
 
   /**
    * Extract a navigation destination from NAV_PATTERNS.
@@ -105,9 +116,19 @@ const AIIntentClassifier = (() => {
       return { intent: 'LOCATION_INFO', destination: null, confidence: 'pattern' };
     }
 
+    // Sensor check — bypass place search
+    if (SENSOR_KW.some(k => lower.includes(k))) {
+      return { intent: 'GENERAL_CHAT', destination: null, confidence: 'pattern' };
+    }
+
     // Place search — info about nearby place, no navigation
+    const placePhraseMatch = NAMED_PLACE_AFTER_NEAREST.exec(lower);
+    if (placePhraseMatch) {
+      return { intent: 'PLACE_SEARCH', destination: placePhraseMatch[1].trim(), confidence: 'pattern' };
+    }
+    
     if (PLACE_SEARCH_KW.some(k => lower.includes(k))) {
-      const pm = msg.match(/(?:nearest|closest|find\s+(?:a|the)?|where\s+is\s+(?:the|a|an)?|near\s+me|how\s+far\s+is\s+(?:the|a|an)?|distance\s+to\s+(?:the|a|an)?)\s+(.+)/i);
+      const pm = msg.match(/(?:find\s+(?:a|the)?|where\s+is\s+(?:the|a|an)?)\s+(.+)/i);
       let dest = pm ? pm[1] : null;
       if (dest) {
           dest = dest.replace(/\b(?:is\s+)?from\s+(?:my\s+location|here|me)\b/i, '')

@@ -490,7 +490,7 @@ app.post('/api/pi/trigger-hardware-camera', (req, res) => {
          hardwareCameraDeferredResponse.status(504).json({ error: "ESP32 Camera did not respond in time." });
          hardwareCameraDeferredResponse = null;
      }
-  }, 60000); // 60 seconds for Wi-Fi Camera Uploads + Vision processing
+  }, 15000); // 15 seconds for Wi-Fi Camera Uploads + Vision processing
 });
 
 // POST /api/pi/audio-input — Pi sends WAV/audio bytes → transcribe → classify → respond
