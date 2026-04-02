@@ -37,7 +37,7 @@ const visionClient = new OpenAI({
 });
 
 // ─── Helper: non-streaming AI call ──────────────────────────────────────────
-async function aiComplete(messages, model = 'llama-3.3-70b-versatile', maxTokens = 512) {
+async function aiComplete(messages, model = 'llama-3.1-8b-instant', maxTokens = 512) {
   const resp = await client.chat.completions.create({
     model,
     messages,
@@ -100,7 +100,7 @@ app.post('/api/ai/chat', async (req, res) => {
     // Vercel Serverless Functions don't support simple Express streaming 
     // They will truncate the response to the first chunk. Send a single response instead.
     if (process.env.VERCEL) {
-      const responseText = await aiComplete(messages, 'llama-3.3-70b-versatile', 1024);
+      const responseText = await aiComplete(messages, 'llama-3.1-8b-instant', 1024);
       return res.send(responseText);
     }
 
@@ -109,7 +109,7 @@ app.post('/api/ai/chat', async (req, res) => {
     res.setHeader('Cache-Control', 'no-cache');
 
     const stream = await client.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
+      model: 'llama-3.1-8b-instant',
       messages,
       temperature: 0.7,
       max_tokens: 1024,
@@ -527,7 +527,7 @@ app.post('/api/pi/audio-input', emitHardwareStart, express.raw({ type: 'applicat
       const dateStr = now.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long', month: 'long', day: 'numeric' });
       
       const chatPromise = client.chat.completions.create({
-        model: 'llama-3.3-70b-versatile',
+        model: 'llama-3.1-8b-instant',
         messages: [
           { role: 'system', content: `You are the Vision AID assistant. The current time is ${timeStr} and today is ${dateStr}. Respond concisely (under 20 words). The user might call you 'Jenny' or other names; just respond helpfully as their assistant.` },
           { role: 'user', content: transcript }
@@ -918,7 +918,7 @@ function setupWebSocket(server) {
             const systemPrompt = `You are Vision AID, an assistive AI for a visually impaired user. The current time is ${timeStr}, ${dateStr}. You MUST use ALL the sensor data below in EVERY response. Always mention the exact distance in cm/meters, whether an obstacle is close, and whether motion is detected. Never ignore a sensor reading. Sensor readings: ${spatialContext}`;
 
             const chatPromise = wsClient.chat.completions.create({
-              model: 'llama-3.3-70b-versatile',
+              model: 'llama-3.1-8b-instant',
               messages: [
                 { role: 'system', content: systemPrompt },
                 { role: 'user', content: transcript }
