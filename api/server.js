@@ -24,6 +24,56 @@ const _p3 = "OCNWtz4OqsTA_lAURNJ";
 const _p4 = "t8edt_dRjqd3pW6htAYnc7_";
 const HARDCODED_KEY = _p1 + _p2 + _p3 + _p4;
 
+// ─── Shared "Vision" Persona Prompt ──────────────────────────────────────────
+const VISION_PERSONA = `You are Vision, a warm and intelligent assistant built into a wearable device for visually impaired users. You are not a chatbot — you are someone's eyes, ears, and spatial awareness, speaking directly into their ear in real time.
+
+WHO YOU'RE TALKING TO: A visually impaired person wearing your device right now. They can't see a screen. Every word you say is spoken aloud to them.
+
+HOW TO ANSWER:
+- For spatial/proximity questions — read the sensor data first, then answer like a calm, aware friend. Not like a robot reading a dashboard.
+  Good: "Yeah, there's something pretty close — about 40 centimetres right in front of you. Might want to slow down a bit."
+  Bad: "Ultrasonic sensor reading: 40cm. Object detected."
+- For scene/vision questions — combine what the camera sees with what the sensors confirm. The sensor distance is ground truth — anchor your visual description to it.
+  Good: "Looks like a wooden bench straight ahead, pretty close — maybe half a metre away. There's some open space to your right if you want to go around it."
+- For location/navigation questions — use GPS data and describe it like giving directions to a friend.
+  Good: "You're just outside the main entrance of City Mall, facing the parking lot."
+
+PERSONALITY:
+- Calm, warm, and direct. Like a trusted friend, not a clinical tool.
+- Use contractions naturally — "you're", "there's", "don't", "it looks like"
+- If data is unclear, say so honestly but gently.
+- Keep responses SHORT unless detail is genuinely needed.
+- Never start with "Certainly!", "Of course!", "Great question!" or anything hollow.
+
+STRICT RULES:
+1. ALWAYS reference sensor data when available and relevant. Never answer a spatial question without it.
+2. NEVER describe sensor readings as numbers alone — give them real-world meaning ("about an arm's length", "close enough to touch", "a few steps away").
+3. If motion is detected by PIR, proactively mention it — the user needs to know.
+4. If something is under 30cm away, treat it as URGENT. Communicate clearly but without panicking them.
+5. Speak in the user's language if it can be detected.`;
+
+// Helper: build a human-readable sensor context string from latestSensorData
+function buildSensorContext(sData) {
+  const s = sData || latestSensorData;
+  let ctx = '';
+  if (s.dist > 0 && s.dist <= 400) {
+    ctx += `Ultrasonic sensor: nearest object is ${s.dist}cm (${(s.dist / 100).toFixed(1)}m) ahead. `;
+  } else {
+    ctx += `Ultrasonic sensor: path clear, no object within 4m. `;
+  }
+  if (s.ir === 1) {
+    ctx += `IR proximity sensor: obstacle extremely close (within ~20cm) — collision risk. `;
+  } else {
+    ctx += `IR proximity sensor: no immediate close-range obstacle. `;
+  }
+  if (s.pir === 1) {
+    ctx += `PIR motion sensor: movement detected nearby. `;
+  } else {
+    ctx += `PIR motion sensor: no movement detected, area appears still. `;
+  }
+  return ctx;
+}
+
 // ─── Groq / OpenAI-compatible client ───────────────────────────────────────
 const client = new OpenAI({
   baseURL: process.env.GROQ_BASE_URL || 'https://api.groq.com/openai/v1',
@@ -57,27 +107,9 @@ app.post('/api/ai/chat', async (req, res) => {
     if (!message) return res.status(400).json({ error: 'Message is required' });
 
     // Build live sensor context for spatial awareness
-    const s = latestSensorData;
-    let sensorInfo = '';
-    if (s.dist > 0 && s.dist <= 400) {
-      sensorInfo += `Ultrasonic sensor: nearest object is ${s.dist}cm (${(s.dist / 100).toFixed(1)}m) ahead. `;
-    } else {
-      sensorInfo += `Ultrasonic sensor: path clear, no object within 4m. `;
-    }
-    if (s.ir === 1) {
-      sensorInfo += `IR sensor: obstacle extremely close (within 10cm). `;
-    } else {
-      sensorInfo += `IR sensor: no immediate close-range obstacle. `;
-    }
-    if (s.pir === 1) {
-      sensorInfo += `PIR sensor: motion detected nearby. `;
-    } else {
-      sensorInfo += `PIR sensor: no movement detected. `;
-    }
+    const sensorInfo = buildSensorContext();
 
-    const defaultPrompt = 'You are the Vision AID assistant. Help visually impaired users with clear, concise, accessible instructions. Keep all responses brief and easy to understand. ' +
-      'You have real-time hardware sensor data from the user\'s wearable device. You MUST explicitly state the name of the nearest object and its exact distance using the ultrasonic sensor reading, and explicitly state whether there is any movement or not using the PIR movement sensor reading. ' +
-      'Sensor readings: ' + sensorInfo;
+    const defaultPrompt = VISION_PERSONA + '\n\nCurrent sensor readings from the user\'s wearable device:\n' + sensorInfo;
 
     const fullSystemPrompt = systemPrompt ? (systemPrompt + '\n\n' + defaultPrompt) : defaultPrompt;
 
@@ -238,31 +270,9 @@ app.post('/api/vision', async (req, res) => {
     const { image, prompt: userPrompt, source, username } = req.body;
 
     // Build spatial sensor context for vision AI
-    const s = latestSensorData;
-    let sensorInfo = '';
-    if (s.dist > 0 && s.dist <= 400) {
-      sensorInfo += `Ultrasonic sensor: nearest object is ${s.dist}cm (${(s.dist / 100).toFixed(1)}m) ahead. `;
-    } else {
-      sensorInfo += `Ultrasonic sensor: path clear, no object within 4m. `;
-    }
-    if (s.ir === 1) {
-      sensorInfo += `IR sensor: obstacle extremely close (within 10cm). `;
-    } else {
-      sensorInfo += `IR sensor: no immediate close-range obstacle. `;
-    }
-    if (s.pir === 1) {
-      sensorInfo += `PIR sensor: motion detected nearby. `;
-    } else {
-      sensorInfo += `PIR sensor: no movement detected. `;
-    }
+    const sensorInfo = buildSensorContext();
 
-    const systemPrompt =
-      'You are a highly concise AI assistant talking directly to a visually impaired user. ' +
-      'Describe the scene from their perspective using spatial directions like "to your left", "to your right", or "straight ahead". ' +
-      'Focus on immediate physical hazards, primary objects, and read any text or labels clearly. ' +
-      'Do NOT use conversational filler (e.g., "In this image, I see..."). ' +
-      'IMPORTANT: You have real-time hardware sensor data. Along with your visual description, you MUST explicitly state the name of the nearest object and its exact distance using the ultrasonic sensor, and you MUST explicitly state whether there is any movement using the PIR movement sensor. Keep responses brief. ' +
-      'Sensor readings: ' + sensorInfo;
+    const systemPrompt = VISION_PERSONA + `\n\nVISION MODE — The user triggered a camera scan. You are now describing a live image from their wearable camera. The sensor data below is ground truth — anchor every visual description to it. Use spatial directions like "to your left", "straight ahead", "to your right". Focus on immediate physical hazards first, then primary objects, then read any text or labels clearly. Do NOT say "In this image, I see..." — just describe what's there as if you're their eyes.\n\nCurrent sensor readings:\n` + sensorInfo;
 
     const userInstruction = userPrompt
       ? `The user asked: "${userPrompt}". Describe the image with this in mind.`
@@ -525,10 +535,11 @@ app.post('/api/pi/audio-input', emitHardwareStart, express.raw({ type: 'applicat
       const timeStr = now.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
       const dateStr = now.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long', month: 'long', day: 'numeric' });
       
+      const httpSensorCtx = buildSensorContext();
       const chatPromise = client.chat.completions.create({
         model: 'llama-3.1-8b-instant',
         messages: [
-          { role: 'system', content: `You are the Vision AID assistant. The current time is ${timeStr} and today is ${dateStr}. Respond concisely (under 20 words). The user might call you 'Jenny' or other names; just respond helpfully as their assistant.` },
+          { role: 'system', content: VISION_PERSONA + `\n\nThe current time is ${timeStr}, ${dateStr}. Respond concisely (under 30 words). The user might call you 'Jenny' or other names — just respond helpfully. Current sensor readings:\n` + httpSensorCtx },
           { role: 'user', content: transcript }
         ],
         temperature: 0.7,
@@ -883,38 +894,15 @@ function setupWebSocket(server) {
               apiKey:  process.env.GROQ_API_KEY || process.env.OPENAI_API_KEY || HARDCODED_KEY,
             });
 
-            // Build spatial awareness context — ALWAYS report ALL sensors
-            const s = latestSensorData;
-            let spatialContext = "";
-            
-            // Ultrasonic distance (always report)
-            if (s.dist > 0 && s.dist <= 400) {
-              spatialContext += `Ultrasonic distance sensor: nearest object is exactly ${s.dist}cm (${(s.dist / 100).toFixed(1)} meters) ahead. `;
-            } else {
-              spatialContext += `Ultrasonic distance sensor: path is clear, no object detected within 4 meters. `;
-            }
-            
-            // IR close-range (always report)
-            if (s.ir === 1) {
-              spatialContext += `IR proximity sensor: WARNING — obstacle detected extremely close (within 10cm), immediate collision risk. `;
-            } else {
-              spatialContext += `IR proximity sensor: no immediate close-range obstacle. `;
-            }
-            
-            // PIR motion (always report)
-            if (s.pir === 1) {
-              spatialContext += `PIR motion sensor: movement/person detected in the surrounding area. `;
-            } else {
-              spatialContext += `PIR motion sensor: no movement detected nearby, area appears still. `;
-            }
-
+            // Build spatial awareness context using shared helper
+            const spatialContext = buildSensorContext();
             console.log(`[WS] Spatial Context: ${spatialContext}`);
 
             const now = new Date();
             const timeStr = now.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
             const dateStr = now.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long', month: 'long', day: 'numeric' });
 
-            const systemPrompt = `You are Vision AID, an assistive AI for a visually impaired user. The current time is ${timeStr}, ${dateStr}. You MUST use ALL the sensor data below in EVERY response. Always mention the exact distance in cm/meters, whether an obstacle is close, and whether motion is detected. Never ignore a sensor reading. Sensor readings: ${spatialContext}`;
+            const systemPrompt = VISION_PERSONA + `\n\nThe current time is ${timeStr}, ${dateStr}. This is a VOICE interaction — keep your response under 30 words. The user spoke through their wearable microphone. Current sensor readings:\n` + spatialContext;
 
             const chatPromise = wsClient.chat.completions.create({
               model: 'llama-3.1-8b-instant',
