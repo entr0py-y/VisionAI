@@ -731,6 +731,9 @@ const { WebSocketServer } = require('ws');
 function setupWebSocket(server) {
   const wss = new WebSocketServer({ server, path: '/api/pi/ws' });
 
+  // Live spatial sensor cache — updated every ~1 second by the ESP32
+  let latestSensorData = { pir: 0, dist: -1, ir: 0 };
+
   wss.on('connection', (ws, req) => {
     console.log('[WS] New ESP32 Client Connected', req.socket.remoteAddress);
     let audioChunks = [];
@@ -738,10 +741,21 @@ function setupWebSocket(server) {
     ws.on('message', async (message, isBinary) => {
       if (!isBinary) {
         const text = message.toString();
+
+        // ─── SENSOR TELEMETRY ───
+        if (text.startsWith('{"type":"sensors"')) {
+          try {
+            const parsed = JSON.parse(text);
+            latestSensorData.pir = parsed.pir;
+            latestSensorData.dist = parsed.dist;
+            latestSensorData.ir = parsed.ir;
+          } catch(e) {}
+          return;
+        }
+
         if (text === "START") {
           console.log('[WS] ESP32 triggered START recording');
           audioChunks = [];
-          // Emulate Ghost Click
           streamClients.forEach(client => {
             client.write(`data: {"event": "HARDWARE_BTN_TOUCHED"}\n\n`);
           });
@@ -753,7 +767,6 @@ function setupWebSocket(server) {
           audioChunks = [];
           
           try {
-            // STEP 2: CONVERT PCM → WAV (16kHz, mono, 16-bit)
             const dataSize = audioBuffer.length;
             const wavHeader = Buffer.alloc(44);
             
@@ -773,7 +786,6 @@ function setupWebSocket(server) {
 
             const wavBuffer = Buffer.concat([wavHeader, audioBuffer]);
             
-            // STEP 3: STT (Groq Whisper API)
             let transcript = "";
             const FormData = require('form-data');
             const fetch = require('node-fetch');
@@ -804,7 +816,7 @@ function setupWebSocket(server) {
               safeInsert('messages', { role: 'user', content: transcript, type: 'voice', username: "hardware_user" }).catch(() => {});
             } catch(e) {}
 
-            // STEP 4: AI REASONING
+            // STEP 4: AI REASONING (with Spatial Context)
             let aiResponse = "";
             const _p1 = "nvapi-S_iKSD-";
             const _p2 = "CJDP6_l9TeApwME";
@@ -818,10 +830,33 @@ function setupWebSocket(server) {
               apiKey:  process.env.GROQ_API_KEY || process.env.OPENAI_API_KEY || HARDCODED_KEY,
             });
 
+            // Build spatial awareness context from live sensor data
+            const s = latestSensorData;
+            let spatialContext = "";
+            if (s.dist > 0 && s.dist <= 400) {
+              spatialContext += `Ultrasonic sensor: nearest object is ${s.dist}cm ahead. `;
+            } else {
+              spatialContext += `Ultrasonic sensor: no object detected within range. `;
+            }
+            if (s.ir === 1) {
+              spatialContext += `IR sensor: obstacle detected very close (within 10cm). `;
+            }
+            if (s.pir === 1) {
+              spatialContext += `PIR sensor: motion detected nearby. `;
+            }
+
+            console.log(`[WS] Spatial Context: ${spatialContext}`);
+
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
+            const dateStr = now.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long', month: 'long', day: 'numeric' });
+
+            const systemPrompt = `You are Vision AID, an assistive AI for a visually impaired user. The current time is ${timeStr}, ${dateStr}. Respond concisely (under 25 words). IMPORTANT: You have real-time spatial sensor data from the user's wearable device. Use this data to warn them about hazards or confirm proximity when relevant to their question. Sensor readings: ${spatialContext}`;
+
             const chatPromise = wsClient.chat.completions.create({
               model: 'llama-3.3-70b-versatile',
               messages: [
-                { role: 'system', content: `You are the Vision AID assistant. Respond concisely (under 20 words).` },
+                { role: 'system', content: systemPrompt },
                 { role: 'user', content: transcript }
               ],
               temperature: 0.7,

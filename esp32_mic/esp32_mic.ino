@@ -23,11 +23,40 @@ const int serverPort = 443;
 // EXTERNAL TOUCH BUTTON
 // ===========================
 #define TOUCH_PIN 13
-#define LED_BUILTIN 2 // Most ESP32 Dev Boards have a blue LED on GPIO 2
+#define LED_BUILTIN 2
+
+// ===========================
+// SPATIAL SENSORS
+// ===========================
+#define PIR_PIN 34        // HC-SR501 PIR Motion Sensor (Input-Only pin)
+#define ULTRASONIC_TRIG 14 // HC-SR04 Trigger
+#define ULTRASONIC_ECHO 35 // HC-SR04 Echo (Input-Only pin)
+#define IR_PIN 32          // IR Obstacle Avoidance Sensor (Digital Out)
 
 WebSocketsClient webSocket;
 bool isRecording = false;
 bool lastTouchState = LOW;
+unsigned long lastSensorSend = 0;
+const unsigned long SENSOR_INTERVAL = 1000; // Send sensor data every 1 second
+
+// ===========================
+// ULTRASONIC DISTANCE READER
+// ===========================
+long readDistanceCM() {
+  digitalWrite(ULTRASONIC_TRIG, LOW);
+  delayMicroseconds(2);
+  digitalWrite(ULTRASONIC_TRIG, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(ULTRASONIC_TRIG, LOW);
+  
+  // Timeout after 30ms (~5 meters max range)
+  long duration = pulseIn(ULTRASONIC_ECHO, HIGH, 30000);
+  
+  if (duration == 0) return -1; // No echo received (nothing in range)
+  
+  long distance = duration * 0.034 / 2; // Speed of sound: 0.034 cm/µs
+  return distance;
+}
 
 void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
   switch(type) {
@@ -50,7 +79,7 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("Starting ESP32 Mic with WebSockets...");
+  Serial.println("Starting ESP32 Mic with WebSockets + Spatial Sensors...");
 
   // 1. CONNECT TO WIFI
   WiFi.mode(WIFI_STA);       
@@ -72,7 +101,7 @@ void setup() {
   i2s_config_t i2s_config = {
     .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
     .sample_rate = 16000,
-    .bits_per_sample = I2S_BITS_PER_SAMPLE_32BIT, // Must read 32-bit to capture INMP441's precision
+    .bits_per_sample = I2S_BITS_PER_SAMPLE_32BIT,
     .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
     .communication_format = i2s_comm_format_t(I2S_COMM_FORMAT_I2S | I2S_COMM_FORMAT_I2S_MSB),
     .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
@@ -86,7 +115,7 @@ void setup() {
   i2s_pin_config_t pin_config = {
     .bck_io_num = I2S_SCK,
     .ws_io_num = I2S_WS,
-    .data_out_num = -1, // No speaker
+    .data_out_num = -1,
     .data_in_num = I2S_SD
   };
   
@@ -98,15 +127,17 @@ void setup() {
   i2s_zero_dma_buffer(I2S_PORT);
   Serial.println("I2S Mic initialized.");
 
-  // Physical Touch Button
+  // 3. CONFIGURE SENSOR PINS
   pinMode(TOUCH_PIN, INPUT_PULLDOWN);
+  pinMode(PIR_PIN, INPUT);          // Input-only pin, no pull needed
+  pinMode(ULTRASONIC_TRIG, OUTPUT); // We fire the pulse
+  pinMode(ULTRASONIC_ECHO, INPUT);  // Input-only pin, reads the bounce
+  pinMode(IR_PIN, INPUT);           // Digital obstacle detection
+  Serial.println("Spatial sensors initialized.");
 
-  // 3. WS SERVER SETUP
-  // Server cert validation is skipped for performance, using wss over port 443
+  // 4. WS SERVER SETUP
   webSocket.beginSSL(serverIp, serverPort, "/api/pi/ws", "", "");
   webSocket.onEvent(webSocketEvent);
-  
-  // Try interval 5000ms
   webSocket.setReconnectInterval(5000);
 }
 
@@ -117,6 +148,23 @@ void loop() {
     return;
   }
 
+  // ─── SENSOR TELEMETRY (runs every 1 second, only when NOT recording) ───
+  if (!isRecording && webSocket.isConnected() && (millis() - lastSensorSend >= SENSOR_INTERVAL)) {
+    lastSensorSend = millis();
+    
+    int pirState = digitalRead(PIR_PIN);       // 1 = motion detected
+    long distanceCM = readDistanceCM();         // -1 = no object in range
+    int irObstacle = !digitalRead(IR_PIN);      // IR sensor is active LOW, so we invert: 1 = obstacle close
+    
+    // Build lightweight JSON
+    String sensorJSON = "{\"type\":\"sensors\",\"pir\":" + String(pirState) 
+                      + ",\"dist\":" + String(distanceCM) 
+                      + ",\"ir\":" + String(irObstacle) + "}";
+    
+    webSocket.sendTXT(sensorJSON);
+  }
+
+  // ─── PUSH-TO-TALK BUTTON HANDLING ───
   bool currentTouchState = digitalRead(TOUCH_PIN);
   
   if (currentTouchState == HIGH && lastTouchState == LOW) {
@@ -124,7 +172,6 @@ void loop() {
       Serial.println("\n[PTT] Interruption started! Beaming zero-latency signal...");
       digitalWrite(LED_BUILTIN, HIGH);
       
-      // Sends signal to silence the text-to-speech engine instantly 
       webSocket.sendTXT("START");
       
       isRecording = true;
@@ -132,31 +179,30 @@ void loop() {
     } else {
       Serial.println("[ERR] WS not connected, cannot stream.");
     }
-    delay(50); // debounce
+    delay(50);
   } 
   else if (currentTouchState == LOW && lastTouchState == HIGH && isRecording) {
     Serial.println("\n[PTT] Released! Finalizing buffer.");
     digitalWrite(LED_BUILTIN, LOW);
     
-    // Command backend to process the audio via Groq Whisper + LLM
     webSocket.sendTXT("STOP");
     isRecording = false;
     
-    delay(50); // debounce
+    delay(50);
   }
   
   lastTouchState = currentTouchState;
 
-  // Real-time zero copy audio passthrough
+  // ─── REAL-TIME AUDIO STREAMING ───
   if (isRecording) {
-    uint8_t chunk32[2048]; // 512 samples
+    uint8_t chunk32[2048];
     size_t bytesRead = 0;
     i2s_read(I2S_PORT, chunk32, 2048, &bytesRead, portMAX_DELAY);
 
     if (bytesRead > 0) {
       int samplesRead = bytesRead / 4; 
       int32_t* ptr32 = (int32_t*)chunk32;
-      int16_t chunk16[512]; // Convert 32-bit to 16-bit
+      int16_t chunk16[512];
       
       for(int i = 0; i < samplesRead; i++) {
         int32_t sample = ptr32[i] >> 14; 
