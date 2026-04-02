@@ -76,10 +76,10 @@ app.post('/api/ai/chat', async (req, res) => {
     }
 
     const defaultPrompt = 'You are the Vision AID assistant. Help visually impaired users with clear, concise, accessible instructions. Keep all responses brief and easy to understand. ' +
-      'You have real-time hardware sensor data from the user\'s wearable device. You MUST use ALL sensor readings in your response when the user asks about their surroundings, obstacles, or movement. Always mention exact distances. ' +
+      'You have real-time hardware sensor data from the user\'s wearable device. You MUST explicitly state the name of the nearest object and its exact distance using the ultrasonic sensor reading, and explicitly state whether there is any movement or not using the PIR movement sensor reading. ' +
       'Sensor readings: ' + sensorInfo;
 
-    const fullSystemPrompt = systemPrompt || defaultPrompt;
+    const fullSystemPrompt = systemPrompt ? (systemPrompt + '\n\n' + defaultPrompt) : defaultPrompt;
 
     const messages = [{ role: 'system', content: fullSystemPrompt }];
 
@@ -261,8 +261,7 @@ app.post('/api/vision', async (req, res) => {
       'Describe the scene from their perspective using spatial directions like "to your left", "to your right", or "straight ahead". ' +
       'Focus on immediate physical hazards, primary objects, and read any text or labels clearly. ' +
       'Do NOT use conversational filler (e.g., "In this image, I see..."). ' +
-      'Keep responses extremely brief (1-3 short sentences max). ' +
-      'IMPORTANT: You also have real-time hardware sensor data. Always include exact distances and proximity warnings from the sensors in your description. ' +
+      'IMPORTANT: You have real-time hardware sensor data. Along with your visual description, you MUST explicitly state the name of the nearest object and its exact distance using the ultrasonic sensor, and you MUST explicitly state whether there is any movement using the PIR movement sensor. Keep responses brief. ' +
       'Sensor readings: ' + sensorInfo;
 
     const userInstruction = userPrompt
