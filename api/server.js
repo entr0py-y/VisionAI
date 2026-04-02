@@ -128,10 +128,10 @@ const client = new OpenAI({
   apiKey:  process.env.GROQ_API_KEY || process.env.OPENAI_API_KEY || HARDCODED_KEY,
 });
 
-// ─── Dedicated vision client (uses VISION_API_KEY if set) ────────────────────
+// ─── Dedicated vision client (uses OPENAI_API_KEY for gpt-4o-mini) ───────────
 const visionClient = new OpenAI({
-  baseURL: process.env.VISION_BASE_URL || 'https://integrate.api.nvidia.com/v1',
-  apiKey:  process.env.NVIDIA_API_KEY || process.env.VISION_API_KEY || process.env.OPENAI_API_KEY || HARDCODED_KEY,
+  baseURL: process.env.VISION_BASE_URL || 'https://api.openai.com/v1',
+  apiKey:  process.env.OPENAI_API_KEY || process.env.VISION_API_KEY || HARDCODED_KEY,
 });
 
 // ─── Helper: non-streaming AI call ──────────────────────────────────────────
@@ -359,9 +359,9 @@ app.post('/api/vision', async (req, res) => {
       const base64 = image.startsWith('data:') ? image : `data:image/jpeg;base64,${image}`;
 
       try {
-          console.log('[Vision] Sending image to vision model...');
+          console.log('[Vision] Sending image to vision model (gpt-4o-mini)...');
           const visionResp = await visionClient.chat.completions.create({
-            model: 'meta/llama-3.2-11b-vision-instruct',
+            model: 'gpt-4o-mini',
             messages: [
               { role: 'system', content: systemPrompt },
             {
