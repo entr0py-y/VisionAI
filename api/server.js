@@ -56,8 +56,30 @@ app.post('/api/ai/chat', async (req, res) => {
     const { message, history, systemPrompt, username } = req.body;
     if (!message) return res.status(400).json({ error: 'Message is required' });
 
-    const fullSystemPrompt = systemPrompt ||
-      'You are the Vision AID assistant. Help visually impaired users with clear, concise, accessible instructions. Keep all responses brief and easy to understand.';
+    // Build live sensor context for spatial awareness
+    const s = latestSensorData;
+    let sensorInfo = '';
+    if (s.dist > 0 && s.dist <= 400) {
+      sensorInfo += `Ultrasonic sensor: nearest object is ${s.dist}cm (${(s.dist / 100).toFixed(1)}m) ahead. `;
+    } else {
+      sensorInfo += `Ultrasonic sensor: path clear, no object within 4m. `;
+    }
+    if (s.ir === 1) {
+      sensorInfo += `IR sensor: obstacle extremely close (within 10cm). `;
+    } else {
+      sensorInfo += `IR sensor: no immediate close-range obstacle. `;
+    }
+    if (s.pir === 1) {
+      sensorInfo += `PIR sensor: motion detected nearby. `;
+    } else {
+      sensorInfo += `PIR sensor: no movement detected. `;
+    }
+
+    const defaultPrompt = 'You are the Vision AID assistant. Help visually impaired users with clear, concise, accessible instructions. Keep all responses brief and easy to understand. ' +
+      'You have real-time hardware sensor data from the user\'s wearable device. You MUST use ALL sensor readings in your response when the user asks about their surroundings, obstacles, or movement. Always mention exact distances. ' +
+      'Sensor readings: ' + sensorInfo;
+
+    const fullSystemPrompt = systemPrompt || defaultPrompt;
 
     const messages = [{ role: 'system', content: fullSystemPrompt }];
 
