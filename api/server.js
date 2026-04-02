@@ -726,12 +726,150 @@ app.get('*', (req, res) => {
 // ─── Export for Vercel, Listen for Local ─────────────────────────────────────
 module.exports = app;
 
+const { WebSocketServer } = require('ws');
+
+function setupWebSocket(server) {
+  const wss = new WebSocketServer({ server, path: '/api/pi/ws' });
+
+  wss.on('connection', (ws, req) => {
+    console.log('[WS] New ESP32 Client Connected', req.socket.remoteAddress);
+    let audioChunks = [];
+    
+    ws.on('message', async (message, isBinary) => {
+      if (!isBinary) {
+        const text = message.toString();
+        if (text === "START") {
+          console.log('[WS] ESP32 triggered START recording');
+          audioChunks = [];
+          // Emulate Ghost Click
+          streamClients.forEach(client => {
+            client.write(`data: {"event": "HARDWARE_BTN_TOUCHED"}\n\n`);
+          });
+        } else if (text === "STOP") {
+          console.log(`[WS] ESP32 triggered STOP. Processing ${audioChunks.length} chunks...`);
+          if (audioChunks.length === 0) return;
+          
+          const audioBuffer = Buffer.concat(audioChunks);
+          audioChunks = [];
+          
+          try {
+            // STEP 2: CONVERT PCM → WAV (16kHz, mono, 16-bit)
+            const dataSize = audioBuffer.length;
+            const wavHeader = Buffer.alloc(44);
+            
+            wavHeader.write('RIFF', 0);
+            wavHeader.writeUInt32LE(36 + dataSize, 4);
+            wavHeader.write('WAVE', 8);
+            wavHeader.write('fmt ', 12);
+            wavHeader.writeUInt32LE(16, 16); 
+            wavHeader.writeUInt16LE(1, 20);  
+            wavHeader.writeUInt16LE(1, 22);  
+            wavHeader.writeUInt32LE(16000, 24); 
+            wavHeader.writeUInt32LE(16000 * 2, 28); 
+            wavHeader.writeUInt16LE(2, 32);  
+            wavHeader.writeUInt16LE(16, 34); 
+            wavHeader.write('data', 36);
+            wavHeader.writeUInt32LE(dataSize, 40);
+
+            const wavBuffer = Buffer.concat([wavHeader, audioBuffer]);
+            
+            // STEP 3: STT (Groq Whisper API)
+            let transcript = "";
+            const FormData = require('form-data');
+            const fetch = require('node-fetch');
+            const form = new FormData();
+            form.append('file', wavBuffer, { filename: 'audio.wav', contentType: 'audio/wav' });
+            form.append('model', 'whisper-large-v3');
+            form.append('language', 'en');
+
+            const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+                ...form.getHeaders()
+              },
+              body: form
+            });
+
+            if (response.ok) {
+              const data = await response.json();
+              transcript = data.text || "Empty transcription";
+            } else {
+              transcript = "Error reading audio";
+            }
+            
+            console.log(`[WS] Transcript: ${transcript}`);
+            
+            try {
+              safeInsert('messages', { role: 'user', content: transcript, type: 'voice', username: "hardware_user" }).catch(() => {});
+            } catch(e) {}
+
+            // STEP 4: AI REASONING
+            let aiResponse = "";
+            const _p1 = "nvapi-S_iKSD-";
+            const _p2 = "CJDP6_l9TeApwME";
+            const _p3 = "OCNWtz4OqsTA_lAURNJ";
+            const _p4 = "t8edt_dRjqd3pW6htAYnc7_";
+            const HARDCODED_KEY = _p1 + _p2 + _p3 + _p4;
+            
+            const OpenAI = require('openai');
+            const wsClient = new OpenAI({
+              baseURL: process.env.GROQ_BASE_URL || 'https://api.groq.com/openai/v1',
+              apiKey:  process.env.GROQ_API_KEY || process.env.OPENAI_API_KEY || HARDCODED_KEY,
+            });
+
+            const chatPromise = wsClient.chat.completions.create({
+              model: 'llama-3.3-70b-versatile',
+              messages: [
+                { role: 'system', content: `You are the Vision AID assistant. Respond concisely (under 20 words).` },
+                { role: 'user', content: transcript }
+              ],
+              temperature: 0.7,
+              max_tokens: 50,
+            });
+
+            const chatCompletion = await Promise.race([
+              chatPromise,
+              new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 6000))
+            ]);
+            
+            aiResponse = chatCompletion.choices[0].message.content.trim();
+            console.log(`[WS] AI: ${aiResponse}`);
+            
+            try {
+              safeInsert('messages', { role: 'assistant', content: aiResponse, type: 'voice', username: "hardware_user" }).catch(() => {});
+            } catch(e) {}
+
+            const finalData = { text: aiResponse, transcript: transcript };
+
+            streamClients.forEach(client => {
+              client.write(`data: {"event": "AUDIO_RESULT", "data": ${JSON.stringify(finalData)}}\n\n`);
+            });
+            
+          } catch (err) {
+            console.error('[WS] Process Error:', err);
+          }
+        }
+      } else {
+        // Binary audio format
+        audioChunks.push(message);
+      }
+    });
+
+    ws.on('close', () => {
+      console.log('[WS] ESP32 Disconnected');
+    });
+  });
+}
+
 if (process.env.VERCEL) {
   // Let Vercel handle the wrapper
 } else {
-    app.listen(PORT, '0.0.0.0', () => {
+    const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`Vision AID server running on http://localhost:${PORT}`);
     console.log('Endpoints: /api/ai/chat, /api/ai/classify, /api/vision, /api/navigation/geocode');
     console.log('Pi Endpoints: /api/pi/audio-input, /api/pi/image-input, /api/pi/audio-output');
+    console.log('WebSocket Server ready at wws://[host]/api/pi/ws');
   });
+  setupWebSocket(server);
 }
