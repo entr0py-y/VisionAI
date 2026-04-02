@@ -2953,6 +2953,16 @@
           return;
         }
         showTypingIndicator();
+
+        // Show sensor triggering messages
+        addChatMessage("ai", "📡 Reading Ultrasonic Distance Sensor...");
+        await new Promise(r => setTimeout(r, 300));
+        addChatMessage("ai", "📡 Reading IR Proximity Sensor...");
+        await new Promise(r => setTimeout(r, 300));
+        addChatMessage("ai", "📡 Reading PIR Motion Sensor...");
+        await new Promise(r => setTimeout(r, 300));
+        addChatMessage("ai", "🧠 Analysing sensor data with AI...");
+
         try {
           const historyForAPI = companionState.memoryEngine
             ? conversationHistory
