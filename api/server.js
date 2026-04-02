@@ -739,6 +739,9 @@ function setupWebSocket(server) {
     let audioChunks = [];
     
     ws.on('message', async (message, isBinary) => {
+      // Keep the dashboard health indicator alive
+      hardwareHealth.lastMicPoll = Date.now();
+
       if (!isBinary) {
         const text = message.toString();
 
@@ -830,19 +833,29 @@ function setupWebSocket(server) {
               apiKey:  process.env.GROQ_API_KEY || process.env.OPENAI_API_KEY || HARDCODED_KEY,
             });
 
-            // Build spatial awareness context from live sensor data
+            // Build spatial awareness context — ALWAYS report ALL sensors
             const s = latestSensorData;
             let spatialContext = "";
+            
+            // Ultrasonic distance (always report)
             if (s.dist > 0 && s.dist <= 400) {
-              spatialContext += `Ultrasonic sensor: nearest object is ${s.dist}cm ahead. `;
+              spatialContext += `Ultrasonic distance sensor: nearest object is exactly ${s.dist}cm (${(s.dist / 100).toFixed(1)} meters) ahead. `;
             } else {
-              spatialContext += `Ultrasonic sensor: no object detected within range. `;
+              spatialContext += `Ultrasonic distance sensor: path is clear, no object detected within 4 meters. `;
             }
+            
+            // IR close-range (always report)
             if (s.ir === 1) {
-              spatialContext += `IR sensor: obstacle detected very close (within 10cm). `;
+              spatialContext += `IR proximity sensor: WARNING — obstacle detected extremely close (within 10cm), immediate collision risk. `;
+            } else {
+              spatialContext += `IR proximity sensor: no immediate close-range obstacle. `;
             }
+            
+            // PIR motion (always report)
             if (s.pir === 1) {
-              spatialContext += `PIR sensor: motion detected nearby. `;
+              spatialContext += `PIR motion sensor: movement/person detected in the surrounding area. `;
+            } else {
+              spatialContext += `PIR motion sensor: no movement detected nearby, area appears still. `;
             }
 
             console.log(`[WS] Spatial Context: ${spatialContext}`);
@@ -851,7 +864,7 @@ function setupWebSocket(server) {
             const timeStr = now.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
             const dateStr = now.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long', month: 'long', day: 'numeric' });
 
-            const systemPrompt = `You are Vision AID, an assistive AI for a visually impaired user. The current time is ${timeStr}, ${dateStr}. Respond concisely (under 25 words). IMPORTANT: You have real-time spatial sensor data from the user's wearable device. Use this data to warn them about hazards or confirm proximity when relevant to their question. Sensor readings: ${spatialContext}`;
+            const systemPrompt = `You are Vision AID, an assistive AI for a visually impaired user. The current time is ${timeStr}, ${dateStr}. You MUST use ALL the sensor data below in EVERY response. Always mention the exact distance in cm/meters, whether an obstacle is close, and whether motion is detected. Never ignore a sensor reading. Sensor readings: ${spatialContext}`;
 
             const chatPromise = wsClient.chat.completions.create({
               model: 'llama-3.3-70b-versatile',
