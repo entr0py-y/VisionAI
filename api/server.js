@@ -215,12 +215,33 @@ app.post('/api/vision', async (req, res) => {
   try {
     const { image, prompt: userPrompt, source, username } = req.body;
 
+    // Build spatial sensor context for vision AI
+    const s = latestSensorData;
+    let sensorInfo = '';
+    if (s.dist > 0 && s.dist <= 400) {
+      sensorInfo += `Ultrasonic sensor: nearest object is ${s.dist}cm (${(s.dist / 100).toFixed(1)}m) ahead. `;
+    } else {
+      sensorInfo += `Ultrasonic sensor: path clear, no object within 4m. `;
+    }
+    if (s.ir === 1) {
+      sensorInfo += `IR sensor: obstacle extremely close (within 10cm). `;
+    } else {
+      sensorInfo += `IR sensor: no immediate close-range obstacle. `;
+    }
+    if (s.pir === 1) {
+      sensorInfo += `PIR sensor: motion detected nearby. `;
+    } else {
+      sensorInfo += `PIR sensor: no movement detected. `;
+    }
+
     const systemPrompt =
       'You are a highly concise AI assistant talking directly to a visually impaired user. ' +
       'Describe the scene from their perspective using spatial directions like "to your left", "to your right", or "straight ahead". ' +
       'Focus on immediate physical hazards, primary objects, and read any text or labels clearly. ' +
       'Do NOT use conversational filler (e.g., "In this image, I see..."). ' +
-      'Keep responses extremely brief (1-3 short sentences max).';
+      'Keep responses extremely brief (1-3 short sentences max). ' +
+      'IMPORTANT: You also have real-time hardware sensor data. Always include exact distances and proximity warnings from the sensors in your description. ' +
+      'Sensor readings: ' + sensorInfo;
 
     const userInstruction = userPrompt
       ? `The user asked: "${userPrompt}". Describe the image with this in mind.`
@@ -629,6 +650,9 @@ let hardwareCameraRequest = false;
 let hardwareCameraDeferredResponse = null;
 let hardwareCameraPrompt = '';
 
+// Live spatial sensor cache — updated every ~1s by ESP32 over WebSocket
+let latestSensorData = { pir: 0, dist: -1, ir: 0 };
+
 // ─── SSE ROUTER FOR GHOST-CLICK (Physical Button -> Website Sync) ───
 let streamClients = [];
 
@@ -731,8 +755,7 @@ const { WebSocketServer } = require('ws');
 function setupWebSocket(server) {
   const wss = new WebSocketServer({ server, path: '/api/pi/ws' });
 
-  // Live spatial sensor cache — updated every ~1 second by the ESP32
-  let latestSensorData = { pir: 0, dist: -1, ir: 0 };
+
 
   wss.on('connection', (ws, req) => {
     console.log('[WS] New ESP32 Client Connected', req.socket.remoteAddress);
