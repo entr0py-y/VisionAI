@@ -369,15 +369,18 @@ app.post('/api/pi/trigger-hardware-camera', (req, res) => {
 // POST /api/pi/audio-input — Pi sends WAV/audio bytes → transcribe → classify → respond
 // Accepts: multipart/form-data with field "audio" (audio file)
 //      OR: application/json with { audioBase64: string, mimeType: string }
-app.post('/api/pi/audio-input', express.raw({ type: 'application/octet-stream', limit: '50mb' }), async (req, res) => {
-  hardwareRecordingRequest = false;
-  console.log(`\n[HARDWARE] 🎙️ Audio/Text request received from ESP/Pi! IP: ${req.ip}`);
-  
-  // 📢 ALERT THE FRONTEND: Start recording UI (Ghost Click)
-  // This automatically opens the Chat Modal as soon as the ESP32 connects!
+// Emit HOT trigger to UI immediately upon headers, before buffering 15s of audio!
+const emitHardwareStart = (req, res, next) => {
   streamClients.forEach(client => {
     client.write(`data: {"event": "HARDWARE_BTN_TOUCHED"}\n\n`);
   });
+  next();
+};
+
+app.post('/api/pi/audio-input', emitHardwareStart, express.raw({ type: 'application/octet-stream', limit: '50mb' }), async (req, res) => {
+  hardwareRecordingRequest = false;
+  console.log(`\n[HARDWARE] 🎙️ Audio/Text request received from ESP/Pi! IP: ${req.ip}`);
+
   
   try {
     let audioBuffer;

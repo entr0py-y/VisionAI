@@ -3370,8 +3370,12 @@ function navSOS(el) {
                const micBtn = document.getElementById('micBtn');
                if (micBtn) micBtn.classList.add('recording');
                
-               // Stop any ongoing TTS immediately
-               if (window.speechSynthesis) window.speechSynthesis.cancel();
+               // Stop any ongoing TTS immediately and robustly
+               if (window.speechSynthesis) {
+                 window.speechSynthesis.__isCanceling = true;
+                 window.speechSynthesis.pause();
+                 window.speechSynthesis.cancel();
+               }
                
                // Interrupt any ongoing Chat Generation (fetch)
                if (window.currentChatAbortCtrl) {
