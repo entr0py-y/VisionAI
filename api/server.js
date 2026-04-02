@@ -809,6 +809,12 @@ function setupWebSocket(server) {
           });
         } else if (text === "STOP") {
           console.log(`[WS] ESP32 triggered STOP. Processing ${audioChunks.length} chunks...`);
+          
+          // Tell the UI to turn off the red "Recording" UI immediately
+          streamClients.forEach(client => {
+            client.write(`data: {"event": "HARDWARE_BTN_RELEASED"}\n\n`);
+          });
+
           if (audioChunks.length === 0) return;
           
           const audioBuffer = Buffer.concat(audioChunks);
