@@ -37,7 +37,11 @@ WebSocketsClient webSocket;
 bool isRecording = false;
 bool lastTouchState = LOW;
 unsigned long lastSensorSend = 0;
-const unsigned long SENSOR_INTERVAL = 1000; // Send sensor data every 1 second
+
+// OPTIMIZED: Adaptive telemetry — fast when sensors detect proximity, slow when idle
+const unsigned long ALERT_INTERVAL = 200;   // 200ms in HIGH ALERT mode
+const unsigned long IDLE_INTERVAL  = 2000;  // 2000ms in IDLE mode
+unsigned long currentSensorInterval = IDLE_INTERVAL;
 
 // ===========================
 // ULTRASONIC DISTANCE READER
@@ -148,18 +152,24 @@ void loop() {
     return;
   }
 
-  // ─── SENSOR TELEMETRY (runs every 1 second, only when NOT recording) ───
-  if (!isRecording && webSocket.isConnected() && (millis() - lastSensorSend >= SENSOR_INTERVAL)) {
+  // ─── SENSOR TELEMETRY — OPTIMIZED: Adaptive frequency ───
+  if (!isRecording && webSocket.isConnected() && (millis() - lastSensorSend >= currentSensorInterval)) {
     lastSensorSend = millis();
     
     int pirState = digitalRead(PIR_PIN);       // 1 = motion detected
     long distanceCM = readDistanceCM();         // -1 = no object in range
     int irObstacle = !digitalRead(IR_PIN);      // IR sensor is active LOW, so we invert: 1 = obstacle close
     
-    // Build lightweight JSON
-    String sensorJSON = "{\"type\":\"sensors\",\"pir\":" + String(pirState) 
-                      + ",\"dist\":" + String(distanceCM) 
-                      + ",\"ir\":" + String(irObstacle) + "}";
+    // OPTIMIZED: Adaptive polling — fast when danger detected, slow when clear
+    bool isAlert = (distanceCM > 0 && distanceCM < 100) || pirState == 1 || irObstacle == 1;
+    currentSensorInterval = isAlert ? ALERT_INTERVAL : IDLE_INTERVAL;
+    const char* mode = isAlert ? "ALERT" : "IDLE";
+    
+    // OPTIMIZED: Compact key names (u, p, i) to reduce payload size
+    String sensorJSON = "{\"type\":\"sensors\",\"u\":" + String(distanceCM) 
+                      + ",\"p\":" + String(pirState) 
+                      + ",\"i\":" + String(irObstacle) 
+                      + ",\"mode\":\"" + String(mode) + "\"}";
     
     webSocket.sendTXT(sensorJSON);
   }

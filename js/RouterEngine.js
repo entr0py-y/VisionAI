@@ -15,6 +15,9 @@
 
 const RouterEngine = (() => {
 
+  // OPTIMIZED: GPS Reverse Geocoding Cache — eliminates redundant Nominatim calls
+  let _geocodeCache = { name: null, lat: 0, lng: 0, cachedAt: 0 };
+
   function log(msg) { console.log('[RouterEngine]', msg); }
 
   function uiMsg(text, type = 'ai') {
@@ -109,13 +112,24 @@ const RouterEngine = (() => {
 
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
-        const lat = pos.coords.latitude.toFixed(5);
-        const lng = pos.coords.longitude.toFixed(5);
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        const latStr = lat.toFixed(5);
+        const lngStr = lng.toFixed(5);
+
+        // OPTIMIZED: Check geocode cache before calling Nominatim
+        const now = Date.now();
+        const coordsDelta = Math.abs(lat - _geocodeCache.lat) + Math.abs(lng - _geocodeCache.lng);
+        if (_geocodeCache.name && coordsDelta < 0.001 && (now - _geocodeCache.cachedAt) < 60000) {
+          log('Using cached geocode result');
+          const reply = `📍 You are currently in ${_geocodeCache.name}.`;
+          uiMsg(reply); speak(reply); return;
+        }
 
         // Try reverse-geocode for a human-readable name
         try {
           const res = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`,
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latStr}&lon=${lngStr}`,
             { headers: { 'User-Agent': 'VisionAID-Demo/1.0' } }
           );
           const data = await res.json();
@@ -129,12 +143,16 @@ const RouterEngine = (() => {
             const pretty = city && city !== place
               ? `${place}, ${city}${state ? ', ' + state : ''}`
               : `${place}${state ? ', ' + state : ''}`;
+            
+            // OPTIMIZED: Cache the geocoded result
+            _geocodeCache = { name: pretty, lat, lng, cachedAt: Date.now() };
+            
             const reply = `📍 You are currently in ${pretty}.`;
             uiMsg(reply); speak(reply); return;
           }
         } catch (_) { /* fall through to coords */ }
 
-        const reply = `📍 Your current coordinates are ${lat}°N, ${lng}°E.`;
+        const reply = `📍 Your current coordinates are ${latStr}°N, ${lngStr}°E.`;
         uiMsg(reply); speak(reply);
       },
       (err) => {

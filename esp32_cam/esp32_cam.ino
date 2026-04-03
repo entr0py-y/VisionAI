@@ -1,5 +1,6 @@
 #include "esp_camera.h"
 #include <WiFi.h>
+#include <WebSocketsClient.h>  // OPTIMIZED: WebSocket replaces HTTP polling
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
 
@@ -32,9 +33,41 @@ const int serverPort = 443;
 #define HREF_GPIO_NUM     23
 #define PCLK_GPIO_NUM     22
 
+// OPTIMIZED: WebSocket client for instant capture commands
+WebSocketsClient webSocket;
+bool wsConnected = false;
+
+// OPTIMIZED: WebSocket event handler — receives CAPTURE_NOW / PRELOAD_CAPTURE
+void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
+  switch(type) {
+    case WStype_DISCONNECTED:
+      Serial.println("[WS-CAM] Disconnected from server!");
+      wsConnected = false;
+      break;
+    case WStype_CONNECTED:
+      Serial.printf("[WS-CAM] Connected to %s\n", payload);
+      wsConnected = true;
+      // Identify ourselves as ESP32_CAM so server routes capture commands here
+      webSocket.sendTXT("{\"type\":\"ESP32_CAM\"}");
+      Serial.println("[WS-CAM] Sent ESP32_CAM identification");
+      break;
+    case WStype_TEXT: {
+      String msg = String((char*)payload);
+      Serial.printf("[WS-CAM] Received: %s\n", msg.c_str());
+      
+      // OPTIMIZED: Instant capture on WebSocket push — zero polling delay
+      if (msg == "CAPTURE_NOW" || msg == "PRELOAD_CAPTURE") {
+        Serial.println("\n[TRIGGER] Received capture command via WebSocket. Capturing...");
+        captureAndSendImage(msg == "PRELOAD_CAPTURE");
+      }
+      break;
+    }
+  }
+}
+
 void setup() {
   Serial.begin(115200);
-  Serial.println("Starting ESP32-CAM...");
+  Serial.println("Starting ESP32-CAM (WebSocket Mode)...");
 
   // 1. CONNECT TO WIFI
   WiFi.begin(ssid, password);
@@ -84,45 +117,25 @@ void setup() {
   } else {
     Serial.println("Camera initialized.");
   }
+
+  // 3. OPTIMIZED: Connect to server via WebSocket (same path as ESP32-MIC)
+  webSocket.beginSSL(serverIp, serverPort, "/api/pi/ws", "", "");
+  webSocket.onEvent(webSocketEvent);
+  webSocket.setReconnectInterval(5000);
+  Serial.println("[WS-CAM] WebSocket client started, waiting for connection...");
 }
 
-WiFiClientSecure* persistentCamClient = nullptr;
-
+// OPTIMIZED: No more HTTP polling — just service WebSocket
 void loop() {
+  webSocket.loop();
+  
   if (WiFi.status() != WL_CONNECTED) {
     delay(1000);
     return;
   }
-
-  // Use persistent connection dynamically allocated AFTER PSRAM mounts to prevent endless boot-hangs!
-  if (persistentCamClient == nullptr) {
-    persistentCamClient = new WiFiClientSecure();
-    persistentCamClient->setInsecure();
-  }
-
-  HTTPClient http;
-  http.setReuse(true); // Key for preventing Read Timeouts!
-  String statusUrl = String("https://") + serverIp + "/api/pi/status?device=cam&t=" + String(millis());
-  http.begin(*persistentCamClient, statusUrl);
-  
-  int httpCode = http.GET();
-  if (httpCode == HTTP_CODE_OK) {
-    String payload = http.getString();
-    
-    // Check if the server wants a picture
-    if (payload.indexOf("\"CAPTURE_IMAGE\"") >= 0 || payload.indexOf("CAPTURE_IMAGE") >= 0) {
-      Serial.println("\n[TRIGGER] Received CAPTURE_IMAGE command. Capturing...");
-      captureAndSendImage();
-    }
-  } else {
-    Serial.printf("[HTTP] GET /api/pi/status failed, error: %s\n", http.errorToString(httpCode).c_str());
-  }
-  
-  http.end();
-  delay(1000); 
 }
 
-void captureAndSendImage() {
+void captureAndSendImage(bool isPreload) {
   // FLUSH STALE FRAME: Since fb_count is 1, the camera driver buffers the oldest unseen frame.
   // We grab the existing frame and return it immediately to clear the buffer.
   camera_fb_t * stale_fb = esp_camera_fb_get();
@@ -137,8 +150,9 @@ void captureAndSendImage() {
     return;
   }
 
-  Serial.printf("Captured JPEG: %u bytes\n", fb->len);
+  Serial.printf("Captured JPEG: %u bytes (preload: %s)\n", fb->len, isPreload ? "yes" : "no");
 
+  // OPTIMIZED: Add preload query param for server to distinguish pre-warm captures
   String boundary = "----ESP32CamBoundary";
   String head = "--" + boundary + "\r\n";
   head += "Content-Disposition: form-data; name=\"image\"; filename=\"capture.jpg\"\r\n";
@@ -150,7 +164,8 @@ void captureAndSendImage() {
   client2.setInsecure(); // Required for Render HTTPS Upload
 
   if(client2.connect(serverIp, serverPort)) {
-    client2.print("POST /api/pi/image-input HTTP/1.1\r\n");
+    String path = isPreload ? "/api/pi/image-input?preload=true" : "/api/pi/image-input";
+    client2.print("POST " + path + " HTTP/1.1\r\n");
     client2.print("Host: " + String(serverIp) + "\r\n");
     client2.print("Connection: close\r\n"); // FORCE CLOUDFLARE TO STOP WAITING
     client2.print("Content-Length: " + String(totalLen) + "\r\n");

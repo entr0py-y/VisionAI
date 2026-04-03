@@ -404,13 +404,21 @@ app.post('/api/ai/chat', async (req, res) => {
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // POST /api/ai/classify — Intent classification (rule-based, zero-latency, no LLM)
-// Body: { message: string }
+// Body: { message: string, localIntent?: string }
 // Response: { intent: 'VISION'|'NAVIGATION'|'LOCATION_INFO'|'PLACE_SEARCH'|'GENERAL_CHAT', destination: string|null }
 // ═══════════════════════════════════════════════════════════════════════════════
 app.post('/api/ai/classify', (req, res) => {
   try {
-    const { message } = req.body;
+    const { message, localIntent } = req.body;
     if (!message) return res.status(400).json({ error: 'message required' });
+
+    // OPTIMIZED: Trust frontend local classifier if it returned a confident intent
+    const trustedIntents = ['VISION', 'NAVIGATION', 'LOCATION_INFO', 'PLACE_SEARCH', 'GENERAL_CHAT', 'SENSOR'];
+    if (localIntent && localIntent !== 'UNKNOWN' && trustedIntents.includes(localIntent)) {
+      console.log(`[Classify] Trusting localIntent: ${localIntent}`);
+      const mappedIntent = localIntent === 'SENSOR' ? 'GENERAL_CHAT' : localIntent;
+      return res.json({ intent: mappedIntent, destination: null, source: 'local' });
+    }
 
     let lower = message.toLowerCase().trim();
     // Normalize common typos
@@ -684,8 +692,40 @@ app.post('/api/navigation/geocode', async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 app.post('/api/pi/trigger-hardware-camera', (req, res) => {
-  hardwareCameraRequest = true;
   hardwareCameraPrompt = (req.body && req.body.prompt) ? String(req.body.prompt) : '';
+
+  // OPTIMIZED: Check for pre-warmed image first (Vision Pre-warm)
+  const preloadAge = Date.now() - lastPreloadedImage.timestamp;
+  if (lastPreloadedImage.data && preloadAge < 5000) {
+    console.log(`[Pre-warm] Using preloaded image (age: ${preloadAge}ms)`);
+    const fetch = require('node-fetch');
+    fetch(`http://localhost:${PORT}/api/vision`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: lastPreloadedImage.data, prompt: hardwareCameraPrompt, source: 'pi', username: req.body.username || 'unknown' }),
+    })
+    .then(r => r.json())
+    .then(visionData => {
+      res.json({ description: visionData.description, source: 'pi', preloaded: true, captureAge: preloadAge });
+    })
+    .catch(err => {
+      console.error('[Pre-warm] Vision processing failed:', err.message);
+      res.status(500).json({ error: 'Vision analysis failed' });
+    });
+    lastPreloadedImage = { data: null, timestamp: 0, prompt: '' };
+    hardwareCameraPrompt = '';
+    return;
+  }
+
+  // OPTIMIZED: Use WebSocket to push CAPTURE_NOW instantly instead of polling flag
+  if (wsCAM && wsCAM.readyState === 1) {
+    console.log('[WS-CAM] Sending CAPTURE_NOW via WebSocket');
+    wsCAM.send('CAPTURE_NOW');
+  } else {
+    // Fallback to old polling flag if CAM WebSocket not connected
+    hardwareCameraRequest = true;
+  }
+
   hardwareCameraDeferredResponse = res; 
   
   setTimeout(() => {
@@ -763,7 +803,7 @@ app.post('/api/pi/audio-input', emitHardwareStart, express.raw({ type: 'applicat
         filename: 'audio.wav',
         contentType: 'audio/wav',
       });
-      form.append('model', 'whisper-large-v3');
+      form.append('model', 'distil-whisper-large-v3-en'); // OPTIMIZED: Faster STT model
       form.append('language', 'en');
 
       const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
@@ -776,15 +816,30 @@ app.post('/api/pi/audio-input', emitHardwareStart, express.raw({ type: 'applicat
       });
 
       if (!response.ok) {
-        const errText = await response.text();
-        throw new Error(`Groq API Error: ${response.status} - ${errText}`);
-      }
-
-      const data = await response.json();
-      if (data && data.text) {
-        transcript = data.text;
+        // OPTIMIZED: Fallback to whisper-large-v3-turbo if distil-whisper fails
+        console.warn('[STT] distil-whisper failed, retrying with whisper-large-v3-turbo...');
+        const fallbackForm = new FormData();
+        fallbackForm.append('file', wavBuffer, { filename: 'audio.wav', contentType: 'audio/wav' });
+        fallbackForm.append('model', 'whisper-large-v3-turbo');
+        fallbackForm.append('language', 'en');
+        const fallbackResp = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${process.env.GROQ_API_KEY}`, ...fallbackForm.getHeaders() },
+          body: fallbackForm
+        });
+        if (fallbackResp.ok) {
+          const fbData = await fallbackResp.json();
+          transcript = fbData.text || 'Empty transcription received';
+        } else {
+          throw new Error(`Both STT models failed`);
+        }
       } else {
-        transcript = "Empty transcription received";
+        const data = await response.json();
+        if (data && data.text) {
+          transcript = data.text;
+        } else {
+          transcript = "Empty transcription received";
+        }
       }
 
     } catch (err) {
@@ -885,7 +940,8 @@ app.post('/api/pi/audio-input', emitHardwareStart, express.raw({ type: 'applicat
 // Accepts: multipart/form-data with field "image" OR JSON { image: base64, prompt: string }
 app.post('/api/pi/image-input', upload.single('image'), async (req, res) => {
   hardwareCameraRequest = false;
-  console.log(`\n[HARDWARE] 📷 Image received from ESP/Pi! IP: ${req.ip} Data size: ${req.file ? req.file.size : 'base64'} bytes`);
+  const isPreload = req.query.preload === 'true'; // OPTIMIZED: Pre-warm capture detection
+  console.log(`\n[HARDWARE] 📷 Image received from ESP/Pi! IP: ${req.ip} Data size: ${req.file ? req.file.size : 'base64'} bytes (preload: ${isPreload})`);
   try {
     const fetch = require('node-fetch');
     let imageData = req.body.image; // JSON base64
@@ -896,6 +952,13 @@ app.post('/api/pi/image-input', upload.single('image'), async (req, res) => {
     }
 
     if (!imageData) return res.status(400).json({ error: 'No image provided' });
+
+    // OPTIMIZED: If this is a preload capture, store it and return immediately
+    if (isPreload) {
+      lastPreloadedImage = { data: imageData, timestamp: Date.now(), prompt: '' };
+      console.log(`[Pre-warm] Stored preloaded image (${imageData.length} chars)`);
+      return res.json({ stored: true, preloaded: true });
+    }
     
     const prompt = req.body.prompt || hardwareCameraPrompt || '';
     hardwareCameraPrompt = '';
@@ -910,6 +973,8 @@ app.post('/api/pi/image-input', upload.single('image'), async (req, res) => {
     const finalData = {
       description: visionData.description,
       source: 'pi',
+      preloaded: false, // OPTIMIZED: metadata flag
+      captureAge: 0,
     };
 
     if (hardwareCameraDeferredResponse) {
@@ -960,8 +1025,21 @@ let hardwareCameraRequest = false;
 let hardwareCameraDeferredResponse = null;
 let hardwareCameraPrompt = '';
 
-// Live spatial sensor cache — updated every ~1s by ESP32 over WebSocket
+// Live spatial sensor cache — updated by ESP32 over WebSocket
 let latestSensorData = { pir: 0, dist: -1, ir: 0 };
+
+// OPTIMIZED: WebSocket reference to ESP32-CAM for instant capture commands
+let wsCAM = null;
+
+// OPTIMIZED: Sensor mode tracking for AI context prioritization
+let lastSensorMode = 'IDLE';
+
+// OPTIMIZED: Vision Pre-warm — speculative capture cache
+let lastPreloadedImage = { data: null, timestamp: 0, prompt: '' };
+let lastPreloadCaptureTime = 0;
+
+// OPTIMIZED: GPS Reverse Geocoding Cache
+let geocodeCache = { name: null, lat: 0, lng: 0, cachedAt: 0 };
 
 // ─── SSE ROUTER FOR GHOST-CLICK (Physical Button -> Website Sync) ───
 let streamClients = [];
@@ -1065,27 +1143,54 @@ const { WebSocketServer } = require('ws');
 function setupWebSocket(server) {
   const wss = new WebSocketServer({ server, path: '/api/pi/ws' });
 
-
-
   wss.on('connection', (ws, req) => {
     console.log('[WS] New ESP32 Client Connected', req.socket.remoteAddress);
     let audioChunks = [];
+    let isCAM = false; // OPTIMIZED: Track if this connection is ESP32-CAM
     
     ws.on('message', async (message, isBinary) => {
-      // Keep the dashboard health indicator alive
-      hardwareHealth.lastMicPoll = Date.now();
 
       if (!isBinary) {
         const text = message.toString();
+
+        // OPTIMIZED: ESP32-CAM identification — separate from MIC
+        if (text.startsWith('{"type":"ESP32_CAM"}')) {
+          isCAM = true;
+          wsCAM = ws;
+          hardwareHealth.lastCamPoll = Date.now();
+          console.log('[WS-CAM] ESP32-CAM identified and registered');
+          return;
+        }
+
+        // Keep the dashboard health indicator alive for MIC connections
+        if (!isCAM) {
+          hardwareHealth.lastMicPoll = Date.now();
+        } else {
+          hardwareHealth.lastCamPoll = Date.now();
+          return; // CAM only sends identification, no other text messages
+        }
 
         // ─── SENSOR TELEMETRY ───
         if (text.startsWith('{"type":"sensors"')) {
           try {
             const parsed = JSON.parse(text);
-            latestSensorData.pir = parsed.pir;
-            latestSensorData.dist = parsed.dist;
-            latestSensorData.ir = parsed.ir;
+            // OPTIMIZED: Support compact keys (u, p, i) with fallback to old keys
+            latestSensorData.pir = parsed.p !== undefined ? parsed.p : (parsed.pir || 0);
+            latestSensorData.dist = parsed.u !== undefined ? parsed.u : (parsed.dist || -1);
+            latestSensorData.ir = parsed.i !== undefined ? parsed.i : (parsed.ir || 0);
             lastSensorTimestamp = Date.now();
+            
+            // OPTIMIZED: Store sensor mode for AI context prioritization
+            if (parsed.mode) lastSensorMode = parsed.mode;
+
+            // OPTIMIZED: Vision Pre-warm — speculative capture on proximity
+            const dist = latestSensorData.dist;
+            const now = Date.now();
+            if (dist > 0 && dist < 80 && wsCAM && wsCAM.readyState === 1 && (now - lastPreloadCaptureTime > 3000)) {
+              console.log(`[Pre-warm] Ultrasonic ${dist}cm < 80cm — sending PRELOAD_CAPTURE to CAM`);
+              wsCAM.send('PRELOAD_CAPTURE');
+              lastPreloadCaptureTime = now;
+            }
           } catch(e) {}
           return;
         }
@@ -1129,12 +1234,13 @@ function setupWebSocket(server) {
 
             const wavBuffer = Buffer.concat([wavHeader, audioBuffer]);
             
+            // OPTIMIZED: Switch STT to distil-whisper-large-v3-en with fallback
             let transcript = "";
             const FormData = require('form-data');
             const fetch = require('node-fetch');
             const form = new FormData();
             form.append('file', wavBuffer, { filename: 'audio.wav', contentType: 'audio/wav' });
-            form.append('model', 'whisper-large-v3');
+            form.append('model', 'distil-whisper-large-v3-en'); // OPTIMIZED: Faster STT
             form.append('language', 'en');
 
             const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
@@ -1150,14 +1256,29 @@ function setupWebSocket(server) {
               const data = await response.json();
               transcript = data.text || "Empty transcription";
             } else {
-              transcript = "Error reading audio";
+              // OPTIMIZED: Fallback to whisper-large-v3-turbo
+              console.warn('[WS-STT] distil-whisper failed, retrying with whisper-large-v3-turbo...');
+              const fallbackForm = new FormData();
+              fallbackForm.append('file', wavBuffer, { filename: 'audio.wav', contentType: 'audio/wav' });
+              fallbackForm.append('model', 'whisper-large-v3-turbo');
+              fallbackForm.append('language', 'en');
+              const fallbackResp = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${process.env.GROQ_API_KEY}`, ...fallbackForm.getHeaders() },
+                body: fallbackForm
+              });
+              if (fallbackResp.ok) {
+                const fbData = await fallbackResp.json();
+                transcript = fbData.text || 'Empty transcription';
+              } else {
+                transcript = "Error reading audio";
+              }
             }
             
             console.log(`[WS] Transcript: ${transcript}`);
             
-            try {
-              safeInsert('messages', { role: 'user', content: transcript, type: 'voice', username: "hardware_user" }).catch(() => {});
-            } catch(e) {}
+            // OPTIMIZED: Fire-and-forget Supabase write
+            safeInsert('messages', { role: 'user', content: transcript, type: 'voice', username: "hardware_user" }).catch(() => {});
 
             // STEP 4: AI REASONING (with Spatial Context)
             let aiResponse = "";
@@ -1175,13 +1296,15 @@ function setupWebSocket(server) {
 
             // Build spatial awareness context using shared helper
             const spatialContext = buildSensorContext();
+            // OPTIMIZED: Include sensor mode in context for prioritization
+            const modeNote = lastSensorMode === 'ALERT' ? '\n⚠️ SENSOR MODE: HIGH ALERT — prioritize spatial awareness in your response.' : '';
             console.log(`[WS] Spatial Context: ${spatialContext}`);
 
             const now = new Date();
             const timeStr = now.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
             const dateStr = now.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long', month: 'long', day: 'numeric' });
 
-            const systemPrompt = VISION_PERSONA + `\n\nThe current time is ${timeStr}, ${dateStr}. This is a VOICE interaction — keep your response under 30 words. The user spoke through their wearable microphone. Current sensor readings:\n` + spatialContext;
+            const systemPrompt = VISION_PERSONA + `\n\nThe current time is ${timeStr}, ${dateStr}. This is a VOICE interaction — keep your response under 30 words. The user spoke through their wearable microphone. Current sensor readings:\n` + spatialContext + modeNote;
 
             const chatPromise = wsClient.chat.completions.create({
               model: 'llama-3.1-8b-instant',
@@ -1201,9 +1324,8 @@ function setupWebSocket(server) {
             aiResponse = chatCompletion.choices[0].message.content.trim();
             console.log(`[WS] AI: ${aiResponse}`);
             
-            try {
-              safeInsert('messages', { role: 'assistant', content: aiResponse, type: 'voice', username: "hardware_user" }).catch(() => {});
-            } catch(e) {}
+            // OPTIMIZED: Fire-and-forget Supabase write
+            safeInsert('messages', { role: 'assistant', content: aiResponse, type: 'voice', username: "hardware_user" }).catch(() => {});
 
             const finalData = { text: aiResponse, transcript: transcript };
 
@@ -1222,7 +1344,13 @@ function setupWebSocket(server) {
     });
 
     ws.on('close', () => {
-      console.log('[WS] ESP32 Disconnected');
+      // OPTIMIZED: Clean up CAM reference on disconnect
+      if (isCAM) {
+        wsCAM = null;
+        console.log('[WS-CAM] ESP32-CAM Disconnected');
+      } else {
+        console.log('[WS] ESP32-MIC Disconnected');
+      }
     });
   });
 }

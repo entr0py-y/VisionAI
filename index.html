@@ -3001,6 +3001,44 @@
           aiMsg.innerHTML = '<span class="ai-response-text"></span>';
           container.appendChild(aiMsg);
 
+          // OPTIMIZED: Sentence-by-sentence TTS — speak as chunks arrive
+          let sentenceBuffer = "";
+          let spokenSentences = 0;
+          const sentenceQueue = [];
+          let isSpeakingQueue = false;
+
+          function enqueueSentence(sentence) {
+            const trimmed = sentence.trim();
+            if (!trimmed) return;
+            sentenceQueue.push(trimmed);
+            if (!isSpeakingQueue) drainSentenceQueue();
+          }
+
+          function drainSentenceQueue() {
+            if (sentenceQueue.length === 0) {
+              isSpeakingQueue = false;
+              return;
+            }
+            isSpeakingQueue = true;
+            const text = sentenceQueue.shift();
+            if (!("speechSynthesis" in window)) { drainSentenceQueue(); return; }
+
+            // Cancel only on the very first sentence (to stop any previous speech)
+            if (spokenSentences === 0) {
+              window.speechSynthesis.cancel();
+            }
+            spokenSentences++;
+
+            const u = new SpeechSynthesisUtterance(text);
+            u.rate = 0.95;
+            u.pitch = 1.0;
+            u.volume = 1.0;
+            u.lang = "en-US";
+            u.onend = () => drainSentenceQueue();
+            u.onerror = () => drainSentenceQueue();
+            window.speechSynthesis.speak(u);
+          }
+
           // ── Per-chunk timeout: if the stream stalls mid-way, abort ──
           let chunkTimer;
           const resetChunkTimer = () => {
@@ -3015,12 +3053,30 @@
             clearTimeout(chunkTimer);
             const chunk = decoder.decode(value, { stream: true });
             fullResponse += chunk;
+            sentenceBuffer += chunk;
+
+            // OPTIMIZED: Detect sentence boundaries and speak immediately
+            const sentenceEnd = /([.?!])\s/g;
+            let match;
+            while ((match = sentenceEnd.exec(sentenceBuffer)) !== null) {
+              const endIdx = match.index + match[0].length;
+              const sentence = sentenceBuffer.substring(0, endIdx);
+              enqueueSentence(sentence);
+              sentenceBuffer = sentenceBuffer.substring(endIdx);
+              sentenceEnd.lastIndex = 0; // reset regex after modifying string
+            }
+
             const textSpan = aiMsg.querySelector(".ai-response-text");
             if (textSpan) textSpan.textContent = fullResponse;
             container.scrollTop = container.scrollHeight;
             resetChunkTimer();
           }
           clearTimeout(chunkTimer);
+
+          // Speak any remaining text that didn't end with a sentence boundary
+          if (sentenceBuffer.trim()) {
+            enqueueSentence(sentenceBuffer);
+          }
 
           if (!fullResponse.trim()) {
             // Stream opened but sent nothing
@@ -3034,7 +3090,7 @@
           aiMsg.appendChild(ts);
           conversationHistory.push({ role: "model", text: fullResponse });
           saveMemory();
-          speakText(fullResponse);
+          // OPTIMIZED: Don't call speakText(fullResponse) — already spoken sentence-by-sentence
         } catch (error) {
           removeTypingIndicator();
           const isTimeout = error.name === 'AbortError' || error.message === 'empty stream';
@@ -3187,6 +3243,9 @@
         }
       }
 
+      // OPTIMIZED: Dashboard geocode cache — avoids redundant Nominatim API calls
+      let _dashGeoCache = { name: null, lat: 0, lng: 0, cachedAt: 0 };
+
       function updateLocation() {
         if ("geolocation" in navigator) {
           let wResolved = false;
@@ -3207,6 +3266,14 @@
                 document.getElementById("widgetCoords").textContent =
                   lat.toFixed(4) + "°N " + lng.toFixed(4) + "°E";
                 
+                // OPTIMIZED: Check geocode cache before calling Nominatim
+                const now = Date.now();
+                const delta = Math.abs(lat - _dashGeoCache.lat) + Math.abs(lng - _dashGeoCache.lng);
+                if (_dashGeoCache.name && delta < 0.001 && (now - _dashGeoCache.cachedAt) < 60000) {
+                  document.getElementById("widgetLocation").textContent = _dashGeoCache.name;
+                  return;
+                }
+
                 try {
                   const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
                   const data = await res.json();
@@ -3218,6 +3285,8 @@
                       a.residential   || a.village || a.town   ||
                       a.city          || a.county  || "Current Location";
                   }
+                  // OPTIMIZED: Cache the result
+                  _dashGeoCache = { name: placeName, lat, lng, cachedAt: Date.now() };
                   document.getElementById("widgetLocation").textContent = placeName;
                 } catch (e) {
                   document.getElementById("widgetLocation").textContent =
