@@ -140,8 +140,9 @@ void loop() {
   }
 
   // Send a keep-alive ping every 5 seconds so the dashboard knows we are online
+  // We send the ID payload so the server re-registers us if it ever drops state
   if (wsConnected && (millis() - lastCamPing > 5000)) {
-    webSocket.sendTXT("{\"type\":\"PING\"}");
+    webSocket.sendTXT("{\"type\":\"ESP32_CAM\"}");
     lastCamPing = millis();
   }
 }
