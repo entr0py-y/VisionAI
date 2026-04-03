@@ -201,12 +201,16 @@ function buildSensorContext(sData) {
   // Combine ultrasonic + PIR into a single threat assessment for the AI
   // IR sensor data silently discarded — <8mm range makes it unusable
   const hasDist = s.dist > 0 && s.dist <= 400;
+  const isDamaged = s.dist === -2;
   const distCm = hasDist ? s.dist : -1;
   const motionDetected = s.pir === 1;
 
   let threatLevel, threatSummary;
 
-  if (distCm > 0 && distCm < 30) {
+  if (isDamaged) {
+    threatLevel = '⚪ UNKNOWN (SENSOR OFFLINE)';
+    threatSummary = `Ultrasonic distance sensor is currently disabled or damaged! Cannot determine if path is clear. Do not assume the path is clear. ${motionDetected ? 'PIR did detect movement nearby though!' : ''}`;
+  } else if (distCm > 0 && distCm < 30) {
     threatLevel = '🔴 DANGER';
     threatSummary = `STOP — object at ${distCm}cm ahead, very close. ${motionDetected ? 'It may be moving.' : 'Appears stationary.'}`;
   } else if (distCm >= 30 && distCm < 80) {
@@ -219,13 +223,17 @@ function buildSensorContext(sData) {
     threatLevel = '🟢 CLEAR';
     threatSummary = `Open space ahead — nearest object is ${distCm}cm (${(distCm / 100).toFixed(1)}m) away. ${motionDetected ? 'Something is moving in the area.' : 'No movement detected.'}`;
   } else {
-    // No ultrasonic reading
+    // No ultrasonic reading (timeout = -1)
     threatLevel = motionDetected ? '🟡 CAUTION' : '🟢 CLEAR';
     threatSummary = `No object detected within 4m — path appears clear. ${motionDetected ? 'But movement was detected nearby — stay alert.' : 'No movement detected.'}`;
   }
 
   // Motion addon (always report if detected, regardless of distance)
   const motionNote = motionDetected ? 'YES — something is moving nearby' : 'No — area is still';
+
+  let rawDistText = 'No object within 4m';
+  if (hasDist) rawDistText = distCm + 'cm to nearest object';
+  if (isDamaged) rawDistText = 'SENSOR DAMAGED / DISABLED';
 
   const lines = [
     `## LIVE SENSOR READINGS`,
@@ -234,7 +242,7 @@ function buildSensorContext(sData) {
     `${threatSummary}`,
     ``,
     `Raw sensor data:`,
-    `  Ultrasonic (depth):    ${hasDist ? distCm + 'cm to nearest object' : 'No object within 4m'} | ${effectiveHealth.label}`,
+    `  Ultrasonic (depth):    ${rawDistText} | ${effectiveHealth.label}`,
     `  PIR (motion):          ${motionNote} | ${effectiveHealth.label}`,
     ``,
     `Hardware: ESP32-MIC ${micOnline ? 'Online' : 'Offline'} | ESP32-CAM ${camOnline ? 'Online' : 'Offline'} | ${activeSensorCount}/2 sensors active`,

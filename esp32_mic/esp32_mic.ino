@@ -50,7 +50,6 @@ unsigned long currentSensorInterval = IDLE_INTERVAL;
 float emaDistance = -1;              // Exponential Moving Average state
 const float EMA_ALPHA = 0.3;        // Smoothing factor (0.3 = responsive yet stable)
 
-// Single raw pulse measurement
 long singlePulseCM() {
   digitalWrite(ULTRASONIC_TRIG, LOW);
   delayMicroseconds(2);
@@ -58,12 +57,20 @@ long singlePulseCM() {
   delayMicroseconds(10);
   digitalWrite(ULTRASONIC_TRIG, LOW);
 
-  long duration = pulseIn(ULTRASONIC_ECHO, HIGH, 30000); // 30ms timeout (~5m)
+  // 35ms timeout (~6m). A longer timeout (like 100ms) blocks the ESP32 CPU and crashes the WiFi stack.
+  unsigned long duration = pulseIn(ULTRASONIC_ECHO, HIGH, 35000); 
   if (duration == 0) return -1; // No echo
-  return (long)(duration * 0.034 / 2); // cm
+  
+  long dist = (long)(duration * 0.034 / 2); // cm
+  return dist;
 }
 
-// Sort helper for small arrays (insertion sort)
+// Circular buffer for median filter
+const int SENSOR_WINDOW_SIZE = 5;
+long distBuffer[SENSOR_WINDOW_SIZE] = {-1, -1, -1, -1, -1};
+int distBufferIndex = 0;
+
+// Sort helper for median computation
 void sortArray(long arr[], int n) {
   for (int i = 1; i < n; i++) {
     long key = arr[i];
@@ -76,28 +83,44 @@ void sortArray(long arr[], int n) {
   }
 }
 
-// Take 5 rapid samples, return the median (kills outlier spikes)
+// Takes 1 sample per loop cycle, computes median of the trailing window.
+// This prevents spamming the HC-SR04 (which requires 60ms between pings)
 long readDistanceCM() {
-  const int NUM_SAMPLES = 5;
-  long samples[NUM_SAMPLES];
-  int validCount = 0;
+  // ─── SENSOR DAMAGED OVERRIDE ───
+  // You mentioned the ultrasonic sensor is damaged. 
+  // Returning -2 here tells the AI server that the sensor is explicitly broken,
+  // preventing it from falsely assuming the path is clear.
+  // 
+  // TODO: When you replace the sensor, delete the line below!
+  return -2; 
+  
+  long d = singlePulseCM();
+  
+  // Debug to Serial Monitor so we can see raw pulses instantly
+  Serial.printf("[SENSOR RAW] raw=%ldcm\n", d);
 
-  for (int i = 0; i < NUM_SAMPLES; i++) {
-    long d = singlePulseCM();
-    if (d > 0 && d <= 400) {  // HC-SR04 valid range: 2–400cm
-      samples[validCount++] = d;
+  // Update circular buffer with raw reading
+  distBuffer[distBufferIndex] = d;
+  distBufferIndex = (distBufferIndex + 1) % SENSOR_WINDOW_SIZE;
+
+  // Extract valid readings for median calculation
+  long validSamples[SENSOR_WINDOW_SIZE];
+  int validCount = 0;
+  
+  for (int i = 0; i < SENSOR_WINDOW_SIZE; i++) {
+    if (distBuffer[i] > 0 && distBuffer[i] <= 400) {
+      validSamples[validCount++] = distBuffer[i];
     }
-    delayMicroseconds(500); // Brief settle time between pings
   }
 
   if (validCount == 0) {
-    emaDistance = -1; // Reset EMA if no valid readings
+    emaDistance = -1; // Reset EMA if no valid readings in the entire window
     return -1;       // Nothing in range
   }
 
   // Sort valid samples and pick the median
-  sortArray(samples, validCount);
-  long median = samples[validCount / 2];
+  sortArray(validSamples, validCount);
+  long median = validSamples[validCount / 2];
 
   // Apply Exponential Moving Average for inter-cycle smoothing
   if (emaDistance < 0) {
@@ -200,25 +223,27 @@ void loop() {
   }
 
   // ─── SENSOR TELEMETRY — OPTIMIZED: Adaptive frequency ───
-  if (!isRecording && webSocket.isConnected() && (millis() - lastSensorSend >= currentSensorInterval)) {
+  if (!isRecording && (millis() - lastSensorSend >= currentSensorInterval)) {
     lastSensorSend = millis();
     
     int pirState = digitalRead(PIR_PIN);       // 1 = motion detected
     long distanceCM = readDistanceCM();         // -1 = no object in range
     int irObstacle = !digitalRead(IR_PIN);      // IR sensor is active LOW, so we invert: 1 = obstacle close
     
-    // OPTIMIZED: Adaptive polling — fast when danger detected, slow when clear
-    bool isAlert = (distanceCM > 0 && distanceCM < 100) || pirState == 1 || irObstacle == 1;
-    currentSensorInterval = isAlert ? ALERT_INTERVAL : IDLE_INTERVAL;
-    const char* mode = isAlert ? "ALERT" : "IDLE";
-    
-    // OPTIMIZED: Compact key names (u, p, i) to reduce payload size
-    String sensorJSON = "{\"type\":\"sensors\",\"u\":" + String(distanceCM) 
-                      + ",\"p\":" + String(pirState) 
-                      + ",\"i\":" + String(irObstacle) 
-                      + ",\"mode\":\"" + String(mode) + "\"}";
-    
-    webSocket.sendTXT(sensorJSON);
+    if (webSocket.isConnected()) {
+      // OPTIMIZED: Adaptive polling — fast when danger detected, slow when clear
+      bool isAlert = (distanceCM > 0 && distanceCM < 100) || pirState == 1 || irObstacle == 1;
+      currentSensorInterval = isAlert ? ALERT_INTERVAL : IDLE_INTERVAL;
+      const char* mode = isAlert ? "ALERT" : "IDLE";
+      
+      // OPTIMIZED: Compact key names (u, p, i) to reduce payload size
+      String sensorJSON = "{\"type\":\"sensors\",\"u\":" + String(distanceCM) 
+                        + ",\"p\":" + String(pirState) 
+                        + ",\"i\":" + String(irObstacle) 
+                        + ",\"mode\":\"" + String(mode) + "\"}";
+      
+      webSocket.sendTXT(sensorJSON);
+    }
   }
 
   // ─── PUSH-TO-TALK BUTTON HANDLING ───
