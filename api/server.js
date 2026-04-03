@@ -261,7 +261,7 @@ app.post('/api/ai/chat', async (req, res) => {
     // Build live sensor context for spatial awareness
     const sensorInfo = buildSensorContext();
 
-    const defaultPrompt = VISION_PERSONA + '\n\nCurrent sensor readings from the user\'s wearable device:\n' + sensorInfo;
+    const defaultPrompt = VISION_PERSONA + `\n\n⚠️ CRITICAL: The sensor readings below are LIVE — captured at this exact moment (${new Date().toLocaleTimeString()}). They OVERRIDE anything mentioned in previous messages. The user may have moved since their last question. ALWAYS answer based on THESE readings, NEVER repeat old readings from chat history.\n\n` + sensorInfo;
 
     const fullSystemPrompt = systemPrompt ? (systemPrompt + '\n\n' + defaultPrompt) : defaultPrompt;
 
@@ -275,6 +275,13 @@ app.post('/api/ai/chat', async (req, res) => {
         });
       }
     }
+
+    // Inject FRESH sensor snapshot right before user's message so model can't miss it
+    messages.push({
+      role: 'system',
+      content: `[LIVE SENSOR UPDATE — ${new Date().toLocaleTimeString()}]\n${sensorInfo}\nUse ONLY these readings to answer the next question. Ignore any distances or readings mentioned earlier in this conversation.`
+    });
+
     messages.push({ role: 'user', content: message });
     try {
       safeInsert('messages', { role: 'user', content: message, type: 'chat', username: username || "unknown" }).catch(() => {});
