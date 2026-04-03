@@ -220,21 +220,27 @@ function buildSensorContext(sData) {
   return lines.join('\n');
 }
 
-// ─── Groq / OpenAI-compatible client ───────────────────────────────────────
-const client = new OpenAI({
+// ─── Groq client (ONLY for Whisper STT) ────────────────────────────────────
+const groqClient = new OpenAI({
   baseURL: process.env.GROQ_BASE_URL || 'https://api.groq.com/openai/v1',
-  apiKey:  process.env.GROQ_API_KEY || process.env.OPENAI_API_KEY || HARDCODED_KEY,
+  apiKey:  process.env.GROQ_API_KEY || HARDCODED_KEY,
 });
 
-// ─── Dedicated vision client (uses NVIDIA API via VISION_BASE_URL) ─────────────
+// ─── NVIDIA chat client (DeepSeek v3.2 — 685B, free endpoint) ────────────────
+const chatClient = new OpenAI({
+  baseURL: 'https://integrate.api.nvidia.com/v1',
+  apiKey:  process.env.NVIDIA_API_KEY || HARDCODED_KEY,
+});
+
+// ─── Dedicated vision client (NVIDIA API — Llama 3.2 90B Vision) ─────────────
 const visionClient = new OpenAI({
   baseURL: process.env.VISION_BASE_URL || 'https://integrate.api.nvidia.com/v1',
-  apiKey:  process.env.NVIDIA_API_KEY || process.env.VISION_API_KEY || process.env.OPENAI_API_KEY || HARDCODED_KEY,
+  apiKey:  process.env.NVIDIA_API_KEY || process.env.VISION_API_KEY || HARDCODED_KEY,
 });
 
 // ─── Helper: non-streaming AI call ──────────────────────────────────────────
-async function aiComplete(messages, model = 'llama-3.1-8b-instant', maxTokens = 512) {
-  const resp = await client.chat.completions.create({
+async function aiComplete(messages, model = 'deepseek-ai/deepseek-v3.2', maxTokens = 512) {
+  const resp = await chatClient.chat.completions.create({
     model,
     messages,
     temperature: 0.5,
@@ -275,51 +281,82 @@ app.post('/api/ai/chat', async (req, res) => {
     } catch(e) {}
 
 
-    // Vercel Serverless Functions don't support simple Express streaming 
-    // They will truncate the response to the first chunk. Send a single response instead.
-    if (process.env.VERCEL) {
-      const responseText = await aiComplete(messages, 'llama-3.1-8b-instant', 1024);
-      return res.send(responseText);
-    }
+    // Retry logic for Groq rate limits (429)
+    const MAX_RETRIES = 2;
+    let lastErr = null;
 
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    res.setHeader('Transfer-Encoding', 'chunked');
-    res.setHeader('Cache-Control', 'no-cache');
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        if (attempt > 0) {
+          console.log(`[Chat] Retry attempt ${attempt}/${MAX_RETRIES} after rate limit...`);
+          await new Promise(r => setTimeout(r, attempt * 1500)); // 1.5s, 3s backoff
+        }
 
-    const stream = await client.chat.completions.create({
-      model: 'llama-3.1-8b-instant',
-      messages,
-      temperature: 0.7,
-      max_tokens: 1024,
-      stream: true,
-    });
+        // Vercel Serverless Functions don't support simple Express streaming 
+        if (process.env.VERCEL) {
+          const responseText = await aiComplete(messages, 'deepseek-ai/deepseek-v3.2', 1024);
+          return res.send(responseText);
+        }
 
-    let fullAssistantResponse = '';
-    for await (const chunk of stream) {
-      const content = chunk.choices?.[0]?.delta?.content;
-      if (content) {
-        fullAssistantResponse += content;
-        res.write(content);
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+        res.setHeader('Transfer-Encoding', 'chunked');
+        res.setHeader('Cache-Control', 'no-cache');
+
+        const stream = await chatClient.chat.completions.create({
+          model: 'deepseek-ai/deepseek-v3.2',
+          messages,
+          temperature: 0.7,
+          max_tokens: 1024,
+          stream: true,
+        });
+
+        let fullAssistantResponse = '';
+        for await (const chunk of stream) {
+          const content = chunk.choices?.[0]?.delta?.content;
+          if (content) {
+            fullAssistantResponse += content;
+            res.write(content);
+          }
+        }
+        res.end();
+        
+        try {
+          safeInsert('messages', { role: 'assistant', content: fullAssistantResponse, type: 'chat', username: username || "unknown" }).catch(() => {});
+        } catch(e) {}
+
+        return; // Success — exit the retry loop
+      } catch (err) {
+        lastErr = err;
+        if (err.status === 429 && attempt < MAX_RETRIES) {
+          continue; // Retry on rate limit
+        }
+        break; // Non-retryable error or max retries reached
       }
     }
-    res.end();
-    
-    try {
-      safeInsert('messages', { role: 'assistant', content: fullAssistantResponse, type: 'chat', username: username || "unknown" }).catch(() => {});
-    } catch(e) {}
 
-  } catch (error) {
-    console.error('AI Chat Error:', error.message);
+    // All retries exhausted or non-retryable error
+    console.error('AI Chat Error:', lastErr?.message);
     if (!res.headersSent) {
-      const status = error.status || 500;
+      const status = lastErr?.status || 500;
       res.status(status).json({
         error: 'Failed to get AI response',
         fallback: status === 429
-          ? "I'm receiving too many requests. Please wait a moment."
+          ? "I'm a bit busy right now — give me a few seconds and try again."
           : "I'm having trouble connecting. Please try again.",
       });
     } else {
       res.end();
+    }
+  } catch (outerErr) {
+    console.error('AI Chat Error:', outerErr?.message);
+    if (!res.headersSent) {
+      const status = outerErr?.status || 500;
+      res.status(status).json({
+        error: 'Failed to get AI response',
+        fallback: status === 429
+          ? "I'm a bit busy right now — give me a few seconds and try again."
+          : "I'm having trouble connecting. Please try again.",
+      });
     }
   }
 });
