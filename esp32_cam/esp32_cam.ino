@@ -102,11 +102,11 @@ void setup() {
   config.xclk_freq_hz = 20000000;
   config.pixel_format = PIXFORMAT_JPEG; 
   if(psramFound()){
-    config.frame_size = FRAMESIZE_SVGA;  // 800x600 — reliable with dual SSL
-    config.jpeg_quality = 10;            // High quality JPEG
-    config.fb_count = 2;                 // Double buffer for fresh frames
+    config.frame_size = FRAMESIZE_VGA;
+    config.jpeg_quality = 12; // Lowered from 10 to 12 to reduce file size & latency
+    config.fb_count = 1;
   } else {
-    config.frame_size = FRAMESIZE_VGA;   // 640x480 — safe for no-PSRAM
+    config.frame_size = FRAMESIZE_VGA;
     config.jpeg_quality = 12;
     config.fb_count = 1;
   }
@@ -116,9 +116,11 @@ void setup() {
     Serial.printf("Camera init failed with error 0x%x\n", err);
   } else {
     Serial.println("Camera initialized.");
+    
+    // Correct upside-down orientation
     sensor_t * s = esp_camera_sensor_get();
-    s->set_vflip(s, 1);   // Flip it vertically
-    s->set_hmirror(s, 1); // Mirror it horizontally
+    s->set_vflip(s, 1);   // flip vertically
+    s->set_hmirror(s, 1); // mirror horizontally (180 degree rotation total)
   }
 
   // 3. OPTIMIZED: Connect to server via WebSocket (same path as ESP32-MIC)
@@ -139,78 +141,66 @@ void loop() {
 }
 
 void captureAndSendImage(bool isPreload) {
-  // SAFETY: Check free heap before attempting capture
-  uint32_t freeHeap = ESP.getFreeHeap();
-  Serial.printf("[MEM] Free heap before capture: %u bytes\n", freeHeap);
-  if (freeHeap < 30000) {
-    Serial.println("[MEM] Not enough RAM to capture safely — skipping");
-    return;
-  }
-
-  // FLUSH STALE FRAME then grab fresh one
+  // FLUSH STALE FRAME: Since fb_count is 1, the camera driver buffers the oldest unseen frame.
+  // We grab the existing frame and return it immediately to clear the buffer.
   camera_fb_t * stale_fb = esp_camera_fb_get();
   if (stale_fb) {
     esp_camera_fb_return(stale_fb);
   }
-  delay(50); // Let sensor settle
 
+  // NOW GRAB THE CURRENT REAL-TIME FRAME
   camera_fb_t * fb = esp_camera_fb_get();
   if (!fb) {
-    Serial.println("Camera capture failed!");
+    Serial.println("Camera capture failed");
     return;
   }
 
   Serial.printf("Captured JPEG: %u bytes (preload: %s)\n", fb->len, isPreload ? "yes" : "no");
 
-  // STABILITY: Removed the WebSocket disconnect so it stays online 100% of the time.
-  // We stream directly from fb->buf to save memory instead of making a copy buffer.
-  size_t jpegLen = fb->len;
-
-  // Build multipart headers
+  // OPTIMIZED: Add preload query param for server to distinguish pre-warm captures
   String boundary = "----ESP32CamBoundary";
   String head = "--" + boundary + "\r\n";
   head += "Content-Disposition: form-data; name=\"image\"; filename=\"capture.jpg\"\r\n";
   head += "Content-Type: image/jpeg\r\n\r\n";
   String tail = "\r\n--" + boundary + "--\r\n";
-  uint32_t totalLen = head.length() + jpegLen + tail.length();
+  uint32_t totalLen = head.length() + fb->len + tail.length();
 
   WiFiClientSecure client2;
-  client2.setInsecure();
-  client2.setTimeout(15);  // 15 second timeout
+  client2.setInsecure(); // Required for Render HTTPS Upload
 
-  if (client2.connect(serverIp, serverPort)) {
+  if(client2.connect(serverIp, serverPort)) {
     String path = isPreload ? "/api/pi/image-input?preload=true" : "/api/pi/image-input";
     client2.print("POST " + path + " HTTP/1.1\r\n");
     client2.print("Host: " + String(serverIp) + "\r\n");
-    client2.print("Connection: close\r\n");
+    client2.print("Connection: close\r\n"); // FORCE CLOUDFLARE TO STOP WAITING
     client2.print("Content-Length: " + String(totalLen) + "\r\n");
     client2.print("Content-Type: multipart/form-data; boundary=" + boundary + "\r\n\r\n");
     client2.print(head);
     
-    // Write JPEG bytes in chunks with yield() to prevent watchdog reset
-    size_t offset = 0;
-    while (offset < jpegLen) {
-      size_t chunkSize = min((size_t)1024, jpegLen - offset);
-      client2.write(fb->buf + offset, chunkSize);
-      offset += chunkSize;
-      yield();  // Feed the watchdog
-    }
+    // Write JPEG bytes in chunks
+    uint8_t *fbBuf = fb->buf;
+    size_t fbLen = fb->len;
+    for (size_t n=0; n<fbLen; n=n+1024) {
+      if (n+1024 <= fbLen) {
+        client2.write(fbBuf, 1024);
+        fbBuf += 1024;
+      } else {
+        size_t remainder = fbLen%1024;
+        client2.write(fbBuf, remainder);
+      }
+    }   
     client2.print(tail);
     
-    // Wait for server response (with timeout)
     long timeout = millis();
     while (client2.connected() && millis() - timeout < 10000) {
       if (client2.available()) {
         Serial.print((char)client2.read());
         timeout = millis();
       }
-      yield();
     }
-    Serial.println("\n[UPLOAD] Image sent successfully!");
+    Serial.println("\n[UPLOAD] Image Sent to Render Successfully!");
   } else {
-    Serial.println("[UPLOAD] Server connection failed!");
+    Serial.println("[UPLOAD] Render connection failed!");
   }
-
-  client2.stop();
-  esp_camera_fb_return(fb);  // FREE camera frame buffer only AFTER upload is complete
+  esp_camera_fb_return(fb); // free buffer
 }
