@@ -162,29 +162,9 @@ void captureAndSendImage(bool isPreload) {
 
   Serial.printf("Captured JPEG: %u bytes (preload: %s)\n", fb->len, isPreload ? "yes" : "no");
 
-  // CRITICAL: Copy JPEG to heap buffer, then free the camera frame buffer
-  // This frees PSRAM before we open the SSL connection for upload
+  // STABILITY: Removed the WebSocket disconnect so it stays online 100% of the time.
+  // We stream directly from fb->buf to save memory instead of making a copy buffer.
   size_t jpegLen = fb->len;
-  uint8_t* jpegBuf = (uint8_t*) ps_malloc(jpegLen);  // Allocate in PSRAM
-  if (!jpegBuf) {
-    // Fallback to regular malloc
-    jpegBuf = (uint8_t*) malloc(jpegLen);
-  }
-  if (!jpegBuf) {
-    Serial.println("[MEM] Failed to allocate JPEG copy buffer!");
-    esp_camera_fb_return(fb);
-    return;
-  }
-  memcpy(jpegBuf, fb->buf, jpegLen);
-  esp_camera_fb_return(fb);  // FREE camera frame buffer NOW
-  fb = NULL;
-
-  Serial.printf("[MEM] Free heap after frame release: %u bytes\n", ESP.getFreeHeap());
-
-  // STABILITY: Disconnect WebSocket during upload to free its SSL memory (~16KB)
-  webSocket.disconnect();
-  wsConnected = false;
-  delay(100);  // Let memory settle
 
   // Build multipart headers
   String boundary = "----ESP32CamBoundary";
@@ -211,7 +191,7 @@ void captureAndSendImage(bool isPreload) {
     size_t offset = 0;
     while (offset < jpegLen) {
       size_t chunkSize = min((size_t)1024, jpegLen - offset);
-      client2.write(jpegBuf + offset, chunkSize);
+      client2.write(fb->buf + offset, chunkSize);
       offset += chunkSize;
       yield();  // Feed the watchdog
     }
@@ -232,12 +212,5 @@ void captureAndSendImage(bool isPreload) {
   }
 
   client2.stop();
-  free(jpegBuf);  // Free the JPEG copy buffer
-  jpegBuf = NULL;
-
-  // Reconnect WebSocket after upload
-  Serial.println("[WS-CAM] Reconnecting WebSocket...");
-  webSocket.beginSSL(serverIp, serverPort, "/api/pi/ws", "", "");
-  webSocket.onEvent(webSocketEvent);
-  webSocket.setReconnectInterval(5000);
+  esp_camera_fb_return(fb);  // FREE camera frame buffer only AFTER upload is complete
 }
