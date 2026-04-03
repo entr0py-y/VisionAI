@@ -187,29 +187,26 @@ function buildSensorContext(sData) {
   const effectiveHealth = micOnline ? sensorH : { status: 'OFFLINE', label: 'Offline', lastSeen: 'ESP32-MIC disconnected' };
 
   // Count active sensors (only if MIC is online and we have recent data)
+  // IR sensor excluded — <8mm range makes it unusable for spatial assessment
   let activeSensorCount = 0;
-  if (micOnline && effectiveHealth.status === 'ONLINE') activeSensorCount = 3;
-  else if (micOnline && effectiveHealth.status === 'DEGRADED') activeSensorCount = 3;
+  if (micOnline && effectiveHealth.status === 'ONLINE') activeSensorCount = 2;
+  else if (micOnline && effectiveHealth.status === 'DEGRADED') activeSensorCount = 2;
 
   // Dashboard status
   let dashboardStatus = 'Offline';
-  if (activeSensorCount === 3) dashboardStatus = 'Active';
+  if (activeSensorCount === 2) dashboardStatus = 'Active';
   else if (activeSensorCount > 0) dashboardStatus = 'Degraded';
 
   // ── MULTI-SENSOR FUSION ─────────────────────────────────────────────────
-  // Combine ultrasonic + PIR + IR (Proximity) into a single threat assessment for the AI
+  // Combine ultrasonic + PIR into a single threat assessment for the AI
+  // IR sensor data silently discarded — <8mm range makes it unusable
   const hasDist = s.dist > 0 && s.dist <= 400;
   const distCm = hasDist ? s.dist : -1;
   const motionDetected = s.pir === 1;
-  const proximityAlert = s.ir === 1; // IR Obstacle detection (3-15cm range)
 
   let threatLevel, threatSummary;
 
-  if (proximityAlert) {
-    // IR Obstacle is highest priority — it catches things in the ultrasonic's blind spot
-    threatLevel = '🔴 DANGER (IMMEDIATE PROXIMITY)';
-    threatSummary = `STOP — something is right in front of you! Proximity sensor triggered at less than 15cm. ${motionDetected ? 'It may be moving.' : 'Immediate obstacle detected.'}`;
-  } else if (distCm > 0 && distCm < 30) {
+  if (distCm > 0 && distCm < 30) {
     threatLevel = '🔴 DANGER';
     threatSummary = `STOP — object at ${distCm}cm ahead, very close. ${motionDetected ? 'It may be moving.' : 'Appears stationary.'}`;
   } else if (distCm >= 30 && distCm < 80) {
@@ -239,9 +236,8 @@ function buildSensorContext(sData) {
     `Raw sensor data:`,
     `  Ultrasonic (depth):    ${hasDist ? distCm + 'cm to nearest object' : 'No object within 4m'} | ${effectiveHealth.label}`,
     `  PIR (motion):          ${motionNote} | ${effectiveHealth.label}`,
-    `  IR Proximity:          ${proximityAlert ? 'YES — object detected within 15cm' : 'No object detected'} | ${effectiveHealth.label}`,
     ``,
-    `Hardware: ESP32-MIC ${micOnline ? 'Online' : 'Offline'} | ESP32-CAM ${camOnline ? 'Online' : 'Offline'} | ${activeSensorCount}/3 sensors active`,
+    `Hardware: ESP32-MIC ${micOnline ? 'Online' : 'Offline'} | ESP32-CAM ${camOnline ? 'Online' : 'Offline'} | ${activeSensorCount}/2 sensors active`,
     `Timestamp: ${new Date().toISOString()}`,
   ];
 
@@ -1227,6 +1223,46 @@ let hardwareCameraPrompt = '';
 // Live spatial sensor cache — updated by ESP32 over WebSocket
 let latestSensorData = { pir: 0, dist: -1, ir: 0 };
 
+// SERVER-SIDE ULTRASONIC SMOOTHING — sliding window median filter
+// Second defence layer on top of firmware's median-of-5 + EMA
+const DIST_HISTORY_SIZE = 5;
+let distHistory = [];         // Sliding window of recent readings
+let lastValidDist = -1;       // Last accepted distance
+let lastDistTimestamp = 0;    // For spike rejection timing
+
+function serverSmoothedDist(rawDist) {
+  const now = Date.now();
+  
+  // Reject out-of-range values
+  if (rawDist <= 0 || rawDist > 400) {
+    // If we haven't had a valid reading in >3s, accept that nothing is in range
+    if (now - lastDistTimestamp > 3000) {
+      lastValidDist = -1;
+      distHistory = [];
+    }
+    return lastValidDist;
+  }
+
+  // Spike rejection: if distance jumped >150cm in <500ms, likely a ghost echo
+  const elapsed = now - lastDistTimestamp;
+  if (lastValidDist > 0 && elapsed < 500 && Math.abs(rawDist - lastValidDist) > 150) {
+    // Ignore this reading — keep previous value
+    return lastValidDist;
+  }
+
+  // Add to sliding window
+  distHistory.push(rawDist);
+  if (distHistory.length > DIST_HISTORY_SIZE) distHistory.shift();
+
+  // Median of the window
+  const sorted = [...distHistory].sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)];
+
+  lastValidDist = median;
+  lastDistTimestamp = now;
+  return median;
+}
+
 // OPTIMIZED: WebSocket reference to ESP32-CAM for instant capture commands
 let wsCAM = null;
 
@@ -1375,20 +1411,11 @@ function setupWebSocket(server) {
           try {
             const parsed = JSON.parse(text);
             // OPTIMIZED: Support compact keys (u, p, i) with fallback to old keys
-            // OPTIMIZED: Debounced sensor updates — prevent "flickering" alerts
-            // If sensor just went HIGH, update immediately. If it went LOW, wait 2s to prevent jitter.
-            const sensorTime = Date.now();
-            const rawPir = parsed.p !== undefined ? parsed.p : (parsed.pir || 0);
-            const rawIr  = parsed.i !== undefined ? parsed.i : (parsed.ir || 0);
-
-            if (rawPir === 1) latestSensorData.pir = 1;
-            else if (sensorTime - lastSensorTimestamp > 2000) latestSensorData.pir = 0;
-
-            if (rawIr === 1) latestSensorData.ir = 1;
-            else if (sensorTime - lastSensorTimestamp > 2000) latestSensorData.ir = 0;
-
-            latestSensorData.dist = parsed.u !== undefined ? parsed.u : (parsed.dist || -1);
-            lastSensorTimestamp = sensorTime;
+            latestSensorData.pir = parsed.p !== undefined ? parsed.p : (parsed.pir || 0);
+            const rawDist = parsed.u !== undefined ? parsed.u : (parsed.dist || -1);
+            latestSensorData.dist = serverSmoothedDist(rawDist); // Apply server-side median filter
+            latestSensorData.ir = parsed.i !== undefined ? parsed.i : (parsed.ir || 0);
+            lastSensorTimestamp = Date.now();
             
             // OPTIMIZED: Store sensor mode for AI context prioritization
             if (parsed.mode) lastSensorMode = parsed.mode;

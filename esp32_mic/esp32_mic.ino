@@ -45,21 +45,68 @@ unsigned long currentSensorInterval = IDLE_INTERVAL;
 
 // ===========================
 // ULTRASONIC DISTANCE READER
+// Median-of-5 + EMA smoothing
 // ===========================
-long readDistanceCM() {
+float emaDistance = -1;              // Exponential Moving Average state
+const float EMA_ALPHA = 0.3;        // Smoothing factor (0.3 = responsive yet stable)
+
+// Single raw pulse measurement
+long singlePulseCM() {
   digitalWrite(ULTRASONIC_TRIG, LOW);
   delayMicroseconds(2);
   digitalWrite(ULTRASONIC_TRIG, HIGH);
   delayMicroseconds(10);
   digitalWrite(ULTRASONIC_TRIG, LOW);
-  
-  // Timeout after 30ms (~5 meters max range)
-  long duration = pulseIn(ULTRASONIC_ECHO, HIGH, 30000);
-  
-  if (duration == 0) return -1; // No echo received (nothing in range)
-  
-  long distance = duration * 0.034 / 2; // Speed of sound: 0.034 cm/µs
-  return distance;
+
+  long duration = pulseIn(ULTRASONIC_ECHO, HIGH, 30000); // 30ms timeout (~5m)
+  if (duration == 0) return -1; // No echo
+  return (long)(duration * 0.034 / 2); // cm
+}
+
+// Sort helper for small arrays (insertion sort)
+void sortArray(long arr[], int n) {
+  for (int i = 1; i < n; i++) {
+    long key = arr[i];
+    int j = i - 1;
+    while (j >= 0 && arr[j] > key) {
+      arr[j + 1] = arr[j];
+      j--;
+    }
+    arr[j + 1] = key;
+  }
+}
+
+// Take 5 rapid samples, return the median (kills outlier spikes)
+long readDistanceCM() {
+  const int NUM_SAMPLES = 5;
+  long samples[NUM_SAMPLES];
+  int validCount = 0;
+
+  for (int i = 0; i < NUM_SAMPLES; i++) {
+    long d = singlePulseCM();
+    if (d > 0 && d <= 400) {  // HC-SR04 valid range: 2–400cm
+      samples[validCount++] = d;
+    }
+    delayMicroseconds(500); // Brief settle time between pings
+  }
+
+  if (validCount == 0) {
+    emaDistance = -1; // Reset EMA if no valid readings
+    return -1;       // Nothing in range
+  }
+
+  // Sort valid samples and pick the median
+  sortArray(samples, validCount);
+  long median = samples[validCount / 2];
+
+  // Apply Exponential Moving Average for inter-cycle smoothing
+  if (emaDistance < 0) {
+    emaDistance = (float)median; // First valid reading — seed the EMA
+  } else {
+    emaDistance = EMA_ALPHA * median + (1.0 - EMA_ALPHA) * emaDistance;
+  }
+
+  return (long)(emaDistance + 0.5); // Round to nearest cm
 }
 
 void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
