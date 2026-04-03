@@ -1355,6 +1355,28 @@ app.get('/api/pi/health', (req, res) => {
   });
 });
 
+// SENSOR DEBUG — live view of what the ultrasonic is actually reading
+app.get('/api/pi/sensor-debug', (req, res) => {
+  const now = Date.now();
+  const sensorAge = lastSensorTimestamp ? (now - lastSensorTimestamp) : -1;
+  res.json({
+    current: latestSensorData,
+    filter: {
+      lastValidDist,
+      emaDistance: 'firmware-side',
+      distHistory: [...distHistory],
+      lastDistTimestamp: lastDistTimestamp ? new Date(lastDistTimestamp).toISOString() : 'never',
+    },
+    timing: {
+      sensorAgeMs: sensorAge,
+      sensorAgeLabel: sensorAge < 0 ? 'never received' : sensorAge < 1000 ? 'live' : sensorAge < 5000 ? 'recent' : 'stale',
+      lastSensorTimestamp: lastSensorTimestamp ? new Date(lastSensorTimestamp).toISOString() : 'never',
+    },
+    micOnline: (now - hardwareHealth.lastMicPoll) <= 15000,
+    sensorMode: lastSensorMode,
+  });
+});
+
 // NEW: Polling Endpoint for Frontend to track if Pi is actively recording
 app.get('/api/pi/listening-status', (req, res) => {
   res.json({ listening: hardwareIsCurrentlyListening });
@@ -1434,6 +1456,12 @@ function setupWebSocket(server) {
             latestSensorData.dist = serverSmoothedDist(rawDist); // Apply server-side median filter
             latestSensorData.ir = parsed.i !== undefined ? parsed.i : (parsed.ir || 0);
             lastSensorTimestamp = Date.now();
+            
+            // DEBUG: Log raw vs smoothed every 5 seconds
+            if (!global._lastSensorLog || Date.now() - global._lastSensorLog > 5000) {
+              console.log(`[SENSOR] raw=${rawDist}cm → smoothed=${latestSensorData.dist}cm | PIR=${latestSensorData.pir} | mode=${parsed.mode || '?'} | history=[${distHistory.join(',')}]`);
+              global._lastSensorLog = Date.now();
+            }
             
             // OPTIMIZED: Store sensor mode for AI context prioritization
             if (parsed.mode) lastSensorMode = parsed.mode;
