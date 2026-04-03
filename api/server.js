@@ -303,7 +303,7 @@ app.post('/api/ai/chat', async (req, res) => {
     // Inject FRESH sensor snapshot right before user's message so model can't miss it
     messages.push({
       role: 'system',
-      content: `[LIVE SENSOR UPDATE — ${new Date().toLocaleTimeString()}]\n${sensorInfo}\nUse ONLY these readings to answer the next question. Ignore any distances or readings mentioned earlier in this conversation.`
+      content: `[LIVE SENSOR UPDATE — ${new Date().toLocaleTimeString()}]\n${sensorInfo}\n\nCRITICAL INSTRUCTION: The readings above are the ONLY valid sensor data. Any distances, obstacle mentions, or sensor values from earlier messages in this conversation are STALE and WRONG. NEVER repeat, reference, or echo any sensor reading from previous assistant messages. If the user says "now?", "check again", "what about now", or any follow-up — respond ONLY with these fresh readings.`
     });
 
     messages.push({ role: 'user', content: message });

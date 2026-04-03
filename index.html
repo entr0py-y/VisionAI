@@ -2955,10 +2955,33 @@
         showTypingIndicator();
 
         try {
+          // Strip sensor-specific readings from old AI responses so the model
+          // can only use the LIVE sensor snapshot injected by the server.
+          // Without this, follow-ups like "now?" parrot old distance values.
+          const sensorDataPattern = /(?:ultrasonic|depth sensor|pir|motion sensor|sensor)\s*(?:shows?|reads?|says?|detects?|indicates?|reports?)\s*[^.!?]*[.!?]?/gi;
+          const distancePattern = /(?:nothing\s+(?:closer|within)|(?:about|around|approximately)?\s*\d+\s*(?:cm|metres?|meters?|m)\s*(?:away|ahead|from))[^.!?]*[.!?]?/gi;
+          const clearPathPattern = /(?:path(?:'s|\s+is)\s+clear|clear\s+ahead|no\s+(?:object|obstacle)s?\s+(?:detected|within|nearby))[^.!?]*[.!?]?/gi;
+
+          function stripSensorReadings(text) {
+            return text
+              .replace(sensorDataPattern, '')
+              .replace(distancePattern, '')
+              .replace(clearPathPattern, '')
+              .replace(/\s{2,}/g, ' ')
+              .trim();
+          }
+
           const historyForAPI = companionState.memoryEngine
             ? conversationHistory
                 .slice(-20)
                 .filter((h) => h.role === "user" || h.role === "model")
+                .map(h => {
+                  if (h.role === 'model') {
+                    return { ...h, text: stripSensorReadings(h.text) };
+                  }
+                  return h;
+                })
+                .filter(h => h.text.length > 0)
             : [];
 
           // ── 12-second hard timeout — if NVIDIA hangs, fail fast ──
