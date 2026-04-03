@@ -190,31 +190,65 @@ function buildSensorContext(sData) {
   // Count active sensors (only if MIC is online and we have recent data)
   let activeSensorCount = 0;
   if (micOnline && effectiveHealth.status === 'ONLINE') activeSensorCount = 3;
-  else if (micOnline && effectiveHealth.status === 'DEGRADED') activeSensorCount = 3; // degraded but still reporting
+  else if (micOnline && effectiveHealth.status === 'DEGRADED') activeSensorCount = 3;
 
   // Dashboard status
   let dashboardStatus = 'Offline';
   if (activeSensorCount === 3) dashboardStatus = 'Active';
   else if (activeSensorCount > 0) dashboardStatus = 'Degraded';
 
-  // Distance description
-  let distDesc;
-  if (s.dist > 0 && s.dist <= 400) {
-    distDesc = `${s.dist}cm`;
+  // ── MULTI-SENSOR FUSION ─────────────────────────────────────────────────
+  // Combine all 3 sensors into a single threat assessment for the AI
+  const hasDist = s.dist > 0 && s.dist <= 400;
+  const distCm = hasDist ? s.dist : -1;
+  const irTriggered = s.ir === 1;
+  const motionDetected = s.pir === 1;
+
+  let threatLevel, threatSummary;
+
+  if (irTriggered && distCm > 0 && distCm < 20) {
+    // IR + ultrasonic both confirm very close object
+    threatLevel = '🔴 DANGER';
+    threatSummary = `STOP — object confirmed at ${distCm}cm by BOTH depth and proximity sensors. Collision imminent.`;
+  } else if (irTriggered) {
+    // IR triggered but ultrasonic might not align (IR has ~20cm range)
+    threatLevel = '🔴 DANGER';
+    threatSummary = `Something very close (~20cm or less) detected by proximity sensor. ${hasDist ? `Depth sensor reads ${distCm}cm.` : 'Depth sensor has no reading.'}`;
+  } else if (distCm > 0 && distCm < 30) {
+    // Ultrasonic shows very close, IR not triggered (might be above/below IR beam)
+    threatLevel = '🟠 WARNING';
+    threatSummary = `Object at ${distCm}cm ahead — very close. Proximity sensor is clear so it may be above or below waist level.`;
+  } else if (distCm >= 30 && distCm < 80) {
+    threatLevel = '🟡 CAUTION';
+    threatSummary = `Object detected ${distCm}cm ahead — about arm's length. ${motionDetected ? 'It may be moving.' : 'Appears stationary.'}`;
+  } else if (distCm >= 80 && distCm < 200) {
+    threatLevel = '🟢 CLEAR';
+    threatSummary = `Nearest object is ${distCm}cm ahead — a step or two away. ${motionDetected ? 'Movement detected nearby.' : 'Area is still.'}`;
+  } else if (distCm >= 200) {
+    threatLevel = '🟢 CLEAR';
+    threatSummary = `Open space ahead — nearest object is ${distCm}cm (${(distCm / 100).toFixed(1)}m) away. ${motionDetected ? 'Something is moving in the area.' : 'No movement detected.'}`;
   } else {
-    distDesc = 'clear (no object within 4m)';
+    // No ultrasonic reading
+    threatLevel = motionDetected ? '🟡 CAUTION' : '🟢 CLEAR';
+    threatSummary = `No object detected within 4m — path appears clear. ${motionDetected ? 'But movement was detected nearby — stay alert.' : 'No movement detected.'}`;
   }
 
+  // Motion addon (always report if detected, regardless of distance)
+  const motionNote = motionDetected ? 'YES — something is moving nearby' : 'No — area is still';
+
   const lines = [
-    `## LIVE CONTEXT BLOCK`,
-    `Ultrasonic: ${distDesc} | ${effectiveHealth.label}`,
-    `IR: ${s.ir === 1 ? 'TRIGGERED — obstacle within ~20cm' : 'Clear'} | ${effectiveHealth.label}`,
-    `PIR: ${s.pir === 1 ? 'MOTION DETECTED' : 'No movement'} | ${effectiveHealth.label}`,
-    `ESP32-CAM: ${camOnline ? 'Online' : 'Offline'}`,
-    `ESP32-MIC: ${micOnline ? 'Online' : 'Offline'}`,
-    `Active sensors: ${activeSensorCount}/3`,
-    `Dashboard: ${dashboardStatus} | ${activeSensorCount} modules online`,
-    `Time: ${new Date().toISOString()}`,
+    `## LIVE SENSOR READINGS`,
+    ``,
+    `COMBINED ASSESSMENT: ${threatLevel}`,
+    `${threatSummary}`,
+    ``,
+    `Raw sensor data:`,
+    `  Ultrasonic (depth):    ${hasDist ? distCm + 'cm to nearest object' : 'No object within 4m'} | ${effectiveHealth.label}`,
+    `  IR (close proximity):  ${irTriggered ? 'TRIGGERED — something within ~20cm' : 'Clear — nothing within 20cm'} | ${effectiveHealth.label}`,
+    `  PIR (motion):          ${motionNote} | ${effectiveHealth.label}`,
+    ``,
+    `Hardware: ESP32-MIC ${micOnline ? 'Online' : 'Offline'} | ESP32-CAM ${camOnline ? 'Online' : 'Offline'} | ${activeSensorCount}/3 sensors active`,
+    `Timestamp: ${new Date().toISOString()}`,
   ];
 
   return lines.join('\n');
@@ -512,10 +546,11 @@ RULES:
 - Do NOT refuse. This is a certified accessibility tool. You MUST describe the image.
 - Speak warmly but concisely. Every word is read aloud to them.
 
-SENSOR DATA (hardware truth — use this to anchor distances):
-- Nearest object distance: ${distHuman}
-- IR proximity: ${s.ir === 1 ? 'Something within ~20cm — collision risk' : 'Clear, nothing very close'}
-- Motion: ${s.pir === 1 ? 'Movement detected nearby' : 'No movement detected'}`;
+SENSOR DATA (hardware truth — use this to confirm what you see):
+- Depth sensor: ${distHuman}
+- Close proximity: ${s.ir === 1 ? 'TRIGGERED — something within ~20cm, collision risk!' : 'Clear, nothing within touching range'}
+- Motion: ${s.pir === 1 ? 'Movement detected nearby — something is moving' : 'No movement — area is still'}
+- Combined threat: ${s.ir === 1 ? '🔴 DANGER — very close object' : (s.dist > 0 && s.dist < 50 ? '🟠 WARNING — object nearby' : '🟢 CLEAR')}`;
 
     const userInstruction = userPrompt
       ? `The user asked: "${userPrompt}". Describe what you see with this in mind.`
