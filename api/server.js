@@ -226,7 +226,7 @@ const groqClient = new OpenAI({
   apiKey:  process.env.GROQ_API_KEY || HARDCODED_KEY,
 });
 
-// ─── NVIDIA chat client (DeepSeek v3.2 — 685B, free endpoint) ────────────────
+// ─── NVIDIA chat client (Kimi-K2 — fast, free endpoint) ──────────────────────
 const chatClient = new OpenAI({
   baseURL: 'https://integrate.api.nvidia.com/v1',
   apiKey:  process.env.NVIDIA_API_KEY || HARDCODED_KEY,
@@ -239,7 +239,7 @@ const visionClient = new OpenAI({
 });
 
 // ─── Helper: non-streaming AI call ──────────────────────────────────────────
-async function aiComplete(messages, model = 'deepseek-ai/deepseek-v3.2', maxTokens = 512) {
+async function aiComplete(messages, model = 'moonshotai/kimi-k2-instruct', maxTokens = 512) {
   const resp = await chatClient.chat.completions.create({
     model,
     messages,
@@ -294,7 +294,7 @@ app.post('/api/ai/chat', async (req, res) => {
 
         // Vercel Serverless Functions don't support simple Express streaming 
         if (process.env.VERCEL) {
-          const responseText = await aiComplete(messages, 'deepseek-ai/deepseek-v3.2', 1024);
+          const responseText = await aiComplete(messages, 'moonshotai/kimi-k2-instruct', 1024);
           return res.send(responseText);
         }
 
@@ -303,7 +303,7 @@ app.post('/api/ai/chat', async (req, res) => {
         res.setHeader('Cache-Control', 'no-cache');
 
         const stream = await chatClient.chat.completions.create({
-          model: 'deepseek-ai/deepseek-v3.2',
+          model: 'moonshotai/kimi-k2-instruct',
           messages,
           temperature: 0.7,
           max_tokens: 1024,
