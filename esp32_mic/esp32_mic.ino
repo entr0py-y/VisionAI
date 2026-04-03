@@ -40,7 +40,7 @@ unsigned long lastSensorSend = 0;
 
 // OPTIMIZED: Adaptive telemetry — fast when sensors detect proximity, slow when idle
 const unsigned long ALERT_INTERVAL = 200;   // 200ms in HIGH ALERT mode
-const unsigned long IDLE_INTERVAL  = 2000;  // 2000ms in IDLE mode
+const unsigned long IDLE_INTERVAL  = 400;   // Reduced from 2000ms to 400ms to prevent stale follow-up reads
 unsigned long currentSensorInterval = IDLE_INTERVAL;
 
 // ===========================
