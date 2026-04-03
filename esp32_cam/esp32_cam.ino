@@ -116,11 +116,12 @@ void setup() {
     Serial.printf("Camera init failed with error 0x%x\n", err);
   } else {
     Serial.println("Camera initialized.");
-    
-    // Correct upside-down orientation
+    // Correct upside-down orientation safely
     sensor_t * s = esp_camera_sensor_get();
-    s->set_vflip(s, 1);   // flip vertically
-    s->set_hmirror(s, 1); // mirror horizontally (180 degree rotation total)
+    if (s != NULL) {
+      if (s->set_vflip != NULL) s->set_vflip(s, 1);   // flip vertically
+      if (s->set_hmirror != NULL) s->set_hmirror(s, 1); // mirror horizontally
+    }
   }
 
   // 3. OPTIMIZED: Connect to server via WebSocket (same path as ESP32-MIC)
