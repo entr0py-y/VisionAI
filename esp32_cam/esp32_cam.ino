@@ -102,11 +102,11 @@ void setup() {
   config.xclk_freq_hz = 20000000;
   config.pixel_format = PIXFORMAT_JPEG; 
   if(psramFound()){
-    config.frame_size = FRAMESIZE_UXGA; // Max resolution: 1600x1200
-    config.jpeg_quality = 10;           // Lower number = higher quality (10 is high quality max)
-    config.fb_count = 1;
+    config.frame_size = FRAMESIZE_XGA;  // 1024x768 — reliable + sharp enough for text reading
+    config.jpeg_quality = 10;           // High quality
+    config.fb_count = 2;               // Double buffer with PSRAM to avoid stale frames
   } else {
-    config.frame_size = FRAMESIZE_SVGA; // Max reliable for non-PSRAM: 800x600
+    config.frame_size = FRAMESIZE_VGA;  // 640x480 — safe for no-PSRAM
     config.jpeg_quality = 12;
     config.fb_count = 1;
   }
