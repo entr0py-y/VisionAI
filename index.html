@@ -3264,28 +3264,32 @@
       setInterval(updateLatency, 5000);
 
       function updateSensors() {
-let count = 0;
-if ("geolocation" in navigator) count++;
-if (window.DeviceMotionEvent) count++;
-if (window.DeviceOrientationEvent) count++;
-if ("speechSynthesis" in window) count++;
-const updateUI = (c) => {
-const st = document.getElementById('widgetSensors');
-const sc = document.getElementById('sensorCount');
-if(st) st.textContent = c > 0 ? 'Active' : 'Inactive';
-if(sc) sc.textContent = c + ' modules online';
-};
-if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
-navigator.mediaDevices.enumerateDevices().then(devices => {
-if (devices.some(d => d.kind === 'videoinput')) count++;
-if (devices.some(d => d.kind === 'audioinput')) count++;
-updateUI(count);
-}).catch(() => updateUI(count));
-} else {
-updateUI(count);
-}
-}
-updateSensors();
+        const st = document.getElementById('widgetSensors');
+        const sc = document.getElementById('sensorCount');
+
+        fetch(getBackendUrl('/api/pi/health'))
+          .then(r => r.json())
+          .then(data => {
+            // All 3 sensors (Ultrasonic, PIR, IR) feed through ESP32-MIC
+            // If MIC is online, all 3 sensors are online
+            const sensorCount = data.micOnline ? 3 : 0;
+            const camOnline = data.camOnline || false;
+
+            let status = 'Offline';
+            if (sensorCount === 3) status = 'Active';
+            else if (sensorCount > 0) status = 'Degraded';
+
+            if (st) st.textContent = status;
+            if (sc) sc.textContent = sensorCount + ' modules online';
+          })
+          .catch(() => {
+            // Can't reach backend — show offline
+            if (st) st.textContent = 'Offline';
+            if (sc) sc.textContent = '0 modules online';
+          });
+      }
+      updateSensors();
+      setInterval(updateSensors, 5000);
 
 function navSOS(el) {
         el.classList.add("sos-triggered");
