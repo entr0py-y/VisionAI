@@ -606,34 +606,35 @@ For other objects visible in the image, estimate relatively:
 - Other objects → "a bit further back", "well behind that", "far end"
 Never say "approximately" or "roughly" — just commit to a description.
 
-### OUTPUT FORMAT — HOW TO SPEAK
+### OUTPUT FORMAT
+Keep it short, punchy, and spoken — this gets read aloud immediately.
+You MUST cover ALL visible zones. Never describe just one thing.
 
-Talk like a calm, aware friend — not a report.
-This gets read aloud. It should sound completely natural.
+ALWAYS follow this structure — skip a zone ONLY if that area is truly empty:
+1. CENTER: What's directly ahead + ultrasonic distance
+2. LEFT: What's to the left
+3. RIGHT: What's to the right
+4. GROUND: Steps, curbs, uneven surface, puddles
+5. VERDICT: Path clear or blocked, which way to go
 
-RULES:
-- Only mention left and right if something relevant is there
-- If path is clear, just say so — don't list everything you see
-- If there's a hazard, say where it is and what it is
-- Lead with whatever needs immediate attention
-- Maximum 2-3 sentences total
+Each zone = one short sentence. No paragraphs. No filler words.
+Total response: 4-6 short sentences max.
 
-✅ DO THIS:
-"There's something straight ahead about 90 centimetres away — 
-looks like a cabinet. Path's clear on both sides."
+Examples:
+"Glass door straight ahead, about 80 centimetres. Wall on your left. 
+Open corridor to your right. Floor is flat. You can go right."
 
-"Chair to your right, pretty close. Left side and ahead are clear."
+"Wooden chair dead ahead, really close — 40 centimetres. Table to your 
+left with stuff on it. Person moving on your right. Floor is clear. 
+Go around the chair to the right."
 
-"Watch out — something right in front of you at 25 centimetres."
+"Parked car straight ahead about 2 metres. Pole on your left. Bushes on 
+your right. Footpath curb just below — watch your step. Path is clear 
+if you stay on the footpath."
 
-"All clear ahead, nothing in your way."
-
-❌ NOT THIS:
-"CENTER: A large dark rectangular object at 93cm. LEFT: white object 
-at 80cm. RIGHT: black object at 70cm. PATH VERDICT: clear."
-
-Never use labels like CENTER, LEFT, RIGHT, PATH VERDICT.
-Never list every direction. Only speak what matters.
+"Something's right in front at 25 centimetres — can't make it out, slow 
+down. Wall on the left. Open space to the right. Floor looks flat. 
+Move right to get around it."
 
 ---
 
@@ -736,8 +737,8 @@ SENSOR DATA (hardware truth — use this to confirm what you see):
 - Combined threat: ${s.dist > 0 && s.dist < 30 ? '🔴 DANGER — very close object' : (s.dist > 0 && s.dist < 50 ? '🟠 WARNING — object nearby' : '🟢 CLEAR')}`;
 
     const userInstruction = userPrompt
-      ? `The user asked: "${userPrompt}". Describe what you see naturally — lead with hazards, mention left/right only if relevant.`
-      : 'Describe what is in front of this person right now. Lead with the closest hazard, mention sides only if relevant, and say whether the path is clear.';
+      ? `The user asked: "${userPrompt}". Do a full spatial scan: what's CENTER, LEFT, RIGHT, on the GROUND, and give a PATH VERDICT.`
+      : 'Do a full spatial scan of this scene: what is CENTER (ahead), LEFT, RIGHT, on the GROUND, and is the PATH clear or blocked? Cover all zones, not just one object.';
 
     // ── Try vision model if image supplied ──
     if (image) {
