@@ -102,11 +102,11 @@ void setup() {
   config.xclk_freq_hz = 20000000;
   config.pixel_format = PIXFORMAT_JPEG; 
   if(psramFound()){
-    config.frame_size = FRAMESIZE_VGA;
-    config.jpeg_quality = 12; // Lowered from 10 to 12 to reduce file size & latency
+    config.frame_size = FRAMESIZE_UXGA; // Max resolution: 1600x1200
+    config.jpeg_quality = 10;           // Lower number = higher quality (10 is high quality max)
     config.fb_count = 1;
   } else {
-    config.frame_size = FRAMESIZE_VGA;
+    config.frame_size = FRAMESIZE_SVGA; // Max reliable for non-PSRAM: 800x600
     config.jpeg_quality = 12;
     config.fb_count = 1;
   }
@@ -116,6 +116,9 @@ void setup() {
     Serial.printf("Camera init failed with error 0x%x\n", err);
   } else {
     Serial.println("Camera initialized.");
+    sensor_t * s = esp_camera_sensor_get();
+    s->set_vflip(s, 1);   // Flip it vertically
+    s->set_hmirror(s, 1); // Mirror it horizontally
   }
 
   // 3. OPTIMIZED: Connect to server via WebSocket (same path as ESP32-MIC)
