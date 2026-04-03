@@ -17,6 +17,7 @@ let modelLoaded = false;
 let isInferring = false;
 let isModalOpen = false;
 let detectPaused = false;
+let streamActive = false;
 let eventSource = null;
 let latestImageBitmap = null;
 let activeBackend = 'none';
@@ -99,6 +100,8 @@ function stopStream() {
         eventSource.close();
         eventSource = null;
     }
+    const offText = document.getElementById('camera-offline-text');
+    if (offText) offText.style.display = 'none';
 }
 
 async function runDetection(imageBmp) {
@@ -344,25 +347,51 @@ async function detectionLoop() {
 // Hook into existing Modal Open/Close Logic
 window.onVisionModalOpen = function() {
     isModalOpen = true;
-    detectPaused = false;
+    detectPaused = true;
+    streamActive = false;
     
     const logList = document.getElementById('detection-log-list');
-    if (logList) logList.innerHTML = '';
+    if (logList) logList.innerHTML = `<li class="log-entry" style="padding: 4px 0; border-bottom: 1px solid #333; color: #aaa;">Camera inactive. Start engine to begin.</li>`;
     
+    const statusEl = document.getElementById('vision-status');
+    if (statusEl) statusEl.innerText = "Ready to start";
+
     const toggleBtn = document.getElementById('toggle-vision-btn');
     if (toggleBtn) {
-        toggleBtn.addEventListener('click', () => {
-            detectPaused = !detectPaused;
-            toggleBtn.innerText = detectPaused ? "Resume Detection" : "Pause Detection";
+        // Clone to remove old event listeners
+        const newBtn = toggleBtn.cloneNode(true);
+        toggleBtn.parentNode.replaceChild(newBtn, toggleBtn);
+        newBtn.innerText = "Start Engine";
+        
+        newBtn.addEventListener('click', () => {
+            if (!streamActive) {
+                const confirmStart = confirm("Start Smart Vision Engine?\nThis will activate the camera stream and run AI detection, which may put load on your ESP32-CAM.");
+                if (!confirmStart) return;
+                
+                streamActive = true;
+                detectPaused = false;
+                newBtn.innerText = "Pause Engine";
+                if (logList) logList.innerHTML = '';
+                
+                initVisionModel();
+                startStream();
+                detectionLoop();
+            } else {
+                detectPaused = !detectPaused;
+                newBtn.innerText = detectPaused ? "Resume Engine" : "Pause Engine";
+                if (detectPaused) {
+                    stopStream();
+                } else {
+                    startStream();
+                }
+            }
         });
     }
-
-    initVisionModel();
-    startStream();
-    detectionLoop();
 };
 
 window.onVisionModalClose = function() {
     isModalOpen = false;
+    detectPaused = true;
+    streamActive = false;
     stopStream();
 };
