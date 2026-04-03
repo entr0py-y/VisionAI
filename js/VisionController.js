@@ -75,8 +75,8 @@ const VisionController = (() => {
 
   function log(msg) { console.log('[VisionController]', msg); }
 
-  function uiMsg(text, type = 'ai') {
-    if (typeof addChatMessage === 'function') addChatMessage(type, text);
+  function uiMsg(text, type = 'ai', imageUrl = null) {
+    if (typeof addChatMessage === 'function') return addChatMessage(type, text, null, imageUrl);
   }
 
   function speak(text) {
@@ -111,7 +111,8 @@ const VisionController = (() => {
          if (!resp.ok) throw new Error('Device camera analysis failed');
          const data = await resp.json();
          const description = data.description || 'I could not analyse the device camera image.';
-         uiMsg('👁️ ' + description, 'ai');
+         const capturedImage = data.image || image || null;
+         uiMsg('👁️ ' + description, 'ai', capturedImage);
          speak(description);
 
          if (typeof conversationHistory !== 'undefined') {
@@ -135,7 +136,8 @@ const VisionController = (() => {
        const espData = await espRes.json();
 
        const description = espData.description || 'I could not analyse the ESP image.';
-       uiMsg('👁️ ' + description, 'ai');
+       const capturedImage = espData.image || null;
+       uiMsg('👁️ ' + description, 'ai', capturedImage);
        speak(description);
        
        // Persist to conversation history if available
@@ -169,7 +171,8 @@ const VisionController = (() => {
       });
       const data = await resp.json();
       const description = data.description || 'Could not analyse hardware image.';
-      uiMsg('👁️ ' + description, 'ai');
+      const capturedImage = data.image || base64Image || null;
+      uiMsg('👁️ ' + description, 'ai', capturedImage);
       speak(description);
       return description;
     } catch (err) {

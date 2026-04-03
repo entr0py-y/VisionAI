@@ -1255,6 +1255,84 @@
         color: var(--muted);
       }
 
+      /* Vision image thumbnail — collapsed by default */
+      .vision-thumb {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 8px;
+        padding: 5px 10px;
+        background: rgba(255,255,255,0.05);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 8px;
+        cursor: pointer;
+        transition: background 0.2s;
+        width: fit-content;
+      }
+      .vision-thumb:hover {
+        background: rgba(255,255,255,0.1);
+      }
+      .vision-thumb-icon {
+        width: 18px;
+        height: 18px;
+        opacity: 0.6;
+      }
+      .vision-thumb-label {
+        font-size: 11px;
+        color: rgba(255,255,255,0.5);
+        user-select: none;
+      }
+      .vision-thumb-preview {
+        width: 32px;
+        height: 32px;
+        border-radius: 4px;
+        object-fit: cover;
+        opacity: 0.7;
+      }
+
+      /* Full image lightbox overlay */
+      .vision-lightbox {
+        position: fixed;
+        inset: 0;
+        z-index: 10000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0,0,0,0.85);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        animation: lbIn 0.25s ease;
+        cursor: pointer;
+      }
+      .vision-lightbox img {
+        max-width: 90vw;
+        max-height: 85vh;
+        border-radius: 12px;
+        box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+        animation: lbImgIn 0.3s ease;
+      }
+      .vision-lightbox-close {
+        position: absolute;
+        top: 16px;
+        right: 20px;
+        color: rgba(255,255,255,0.7);
+        font-size: 28px;
+        cursor: pointer;
+        line-height: 1;
+        transition: color 0.2s;
+      }
+      .vision-lightbox-close:hover {
+        color: #fff;
+      }
+      @keyframes lbIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+      @keyframes lbImgIn {
+        from { opacity: 0; transform: scale(0.92); }
+        to { opacity: 1; transform: scale(1); }
+      }
+
       .typing-indicator {
         display: flex;
         gap: 4px;
@@ -2629,7 +2707,7 @@
           minute: "2-digit",
         });
       }
-      function addChatMessage(role, text, dateObj = null) {
+      function addChatMessage(role, text, dateObj = null, imageUrl = null) {
         const c = document.getElementById("chatContainer");
         if (!c) return;
         const m = document.createElement("div");
@@ -2637,6 +2715,24 @@
         const d = document.createElement("div");
         d.textContent = text;
         m.appendChild(d);
+
+        // Vision image thumbnail (collapsed — tap to expand)
+        if (imageUrl && role === 'ai') {
+          const thumb = document.createElement('div');
+          thumb.className = 'vision-thumb';
+          thumb.innerHTML = `<svg class="vision-thumb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg><span class="vision-thumb-label">View captured image</span><img class="vision-thumb-preview" src="${imageUrl}" alt="" />`;
+          thumb.addEventListener('click', (e) => {
+            e.stopPropagation();
+            // Create lightbox
+            const lb = document.createElement('div');
+            lb.className = 'vision-lightbox';
+            lb.innerHTML = `<span class="vision-lightbox-close">&times;</span><img src="${imageUrl}" alt="Captured vision image" />`;
+            lb.addEventListener('click', () => lb.remove());
+            document.body.appendChild(lb);
+          });
+          m.appendChild(thumb);
+        }
+
         const ts = document.createElement("div");
         ts.className = "chat-timestamp";
         

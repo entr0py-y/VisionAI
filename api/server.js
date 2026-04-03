@@ -776,7 +776,7 @@ SENSOR DATA (hardware truth — use this to confirm what you see):
             content: description
           }).catch(err => console.error('Supabase vision insert error:', err));
           
-          return res.json({ description, model: 'vision' });
+          return res.json({ description, model: 'vision', image: base64 });
         }
       } catch (visionErr) {
         console.error('[Vision] Model failed:', visionErr.status, visionErr.message);
@@ -882,7 +882,7 @@ app.post('/api/pi/trigger-hardware-camera', (req, res) => {
     })
     .then(r => r.json())
     .then(visionData => {
-      res.json({ description: visionData.description, source: 'pi', preloaded: true, captureAge: preloadAge });
+      res.json({ description: visionData.description, source: 'pi', preloaded: true, captureAge: preloadAge, image: visionData.image });
     })
     .catch(err => {
       console.error('[Pre-warm] Vision processing failed:', err.message);
@@ -1151,6 +1151,7 @@ app.post('/api/pi/image-input', upload.single('image'), async (req, res) => {
       source: 'pi',
       preloaded: false, // OPTIMIZED: metadata flag
       captureAge: 0,
+      image: visionData.image,
     };
 
     if (hardwareCameraDeferredResponse) {
