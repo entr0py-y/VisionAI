@@ -163,6 +163,7 @@ If user asks "are my sensors working?", "what's online?", "is my device okay?":
 
 // Timestamp of last sensor data received (for health calculation)
 let lastSensorTimestamp = 0;
+let latestFrame = null; // Buffer to hold the currently streamed image for the client vision engine
 
 // Helper: calculate sensor health status based on elapsed time
 function getSensorHealth(lastTs) {
@@ -1165,6 +1166,11 @@ app.post('/api/pi/image-input', upload.single('image'), async (req, res) => {
       console.error('[HARDWARE] Failed to invert image server-side:', e.message);
     }
 
+    try {
+      const pureBase64 = imageData.includes('base64,') ? imageData.split('base64,')[1] : imageData;
+      latestFrame = Buffer.from(pureBase64, 'base64');
+    } catch(e) {}
+
     // OPTIMIZED: If this is a preload capture, store it and return immediately
     if (isPreload) {
       lastPreloadedImage = { data: imageData, timestamp: Date.now(), prompt: '' };
@@ -1412,7 +1418,6 @@ app.get('*', (req, res) => {
 });
 
 // ─── Export for Vercel, Listen for Local ─────────────────────────────────────
-let latestFrame = null;
 
 // New SSE endpoint for client-side vision processing
 app.get('/api/vision/stream', (req, res) => {
@@ -1423,6 +1428,13 @@ app.get('/api/vision/stream', (req, res) => {
   });
 
   const streamInterval = setInterval(() => {
+    // Tell ESP32-CAM to capture a frame silently, limit to ~2-3 FPS to prevent hardware overload
+    const now = Date.now();
+    if (wsCAM && wsCAM.readyState === 1 && (!global.lastStreamReq || now - global.lastStreamReq > 400)) {
+      global.lastStreamReq = now;
+      wsCAM.send('PRELOAD_CAPTURE'); 
+    }
+
     if (latestFrame) {
       res.write(`data: ${latestFrame.toString('base64')}\n\n`);
     } else {
