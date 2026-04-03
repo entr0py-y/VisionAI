@@ -562,9 +562,9 @@ SENSOR DATA (hardware truth — use this to confirm what you see):
       const base64 = image.startsWith('data:') ? image : `data:image/jpeg;base64,${image}`;
 
       try {
-          console.log('[Vision] Sending image to vision model (llama-3.2-90b-vision-instruct)...');
+          console.log('[Vision] Sending image to vision model (phi-4-multimodal-instruct)...');
           const visionResp = await visionClient.chat.completions.create({
-            model: 'meta/llama-3.2-90b-vision-instruct',
+            model: 'microsoft/phi-4-multimodal-instruct',
             messages: [
               { role: 'system', content: visionSystemPrompt },
             {
