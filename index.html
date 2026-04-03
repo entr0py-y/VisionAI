@@ -3339,13 +3339,14 @@
         fetch(getBackendUrl('/api/pi/health'))
           .then(r => r.json())
           .then(data => {
-            // All 3 sensors (Ultrasonic, PIR, IR) feed through ESP32-MIC
-            // If MIC is online, all 3 sensors are online
-            const sensorCount = data.micOnline ? 3 : 0;
+            // 2 sensors (Ultrasonic, PIR) feed through ESP32-MIC
+            // IR sensor excluded — <8mm range makes it unusable
+            // If MIC is online, both sensors are online
+            const sensorCount = data.micOnline ? 2 : 0;
             const camOnline = data.camOnline || false;
 
             let status = 'Offline';
-            if (sensorCount === 3) status = 'Active';
+            if (sensorCount === 2) status = 'Active';
             else if (sensorCount > 0) status = 'Degraded';
 
             if (st) st.textContent = status;

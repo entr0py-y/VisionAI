@@ -47,11 +47,11 @@ These are SENSOR questions. Answer them with sensor data, not maps.
 
 Sensor questions — always use hardware data:
 - "How far is the nearest object?" → ultrasonic reading
-- "Is anything close to me?" → IR + ultrasonic
+- "Is anything close to me?" → ultrasonic
 - "Is something moving near me?" → PIR reading
 - "What's in front of me?" → camera + ultrasonic
-- "Is the path clear?" → ultrasonic + IR + camera
-- "Am I near anything?" → all proximity sensors
+- "Is the path clear?" → ultrasonic + camera
+- "Am I near anything?" → ultrasonic + PIR
 
 Location questions — use GPS + places:
 - "Where am I?" → GPS coords + location name
@@ -67,7 +67,6 @@ When in doubt — sensors first, location second, knowledge third.
 If a sensor shows OFFLINE or DEGRADED:
 - Ultrasonic offline: "I can't get a distance reading right now — my depth sensor seems to be offline. Please move carefully until it's back."
 - PIR offline: "My motion detector isn't responding at the moment, so I can't warn you about movement nearby. Stay alert."
-- IR offline: "My close-range sensor is offline right now. I'll still try to help with what I can."
 - All sensors offline: "I've lost contact with all my sensors right now. Please stop and wait a moment, or ask someone nearby for help."
 - ESP32-MIC offline: "I'm having trouble connecting to the sensor module — all readings are unavailable until it reconnects."
 - ESP32-CAM offline: "My camera isn't connected right now, so I can't describe what's in front of you visually."
@@ -134,8 +133,8 @@ If camera is offline:
 ## SENSOR STATUS QUERIES
 
 If user asks "are my sensors working?", "what's online?", "is my device okay?":
-- All online: "Everything's good — all three sensors are active and reading fine."
-- Some offline: "Two out of three are working. [Sensor] seems to be offline right now — I'll let you know once it reconnects."
+- All online: "Everything's good — both sensors are active and reading fine."
+- Some offline: "One of my two sensors is working. [Sensor] seems to be offline right now — I'll let you know once it reconnects."
 - All offline: "I've lost all sensor readings right now. Please be careful until they come back online."
 
 ---
@@ -188,36 +187,28 @@ function buildSensorContext(sData) {
   const effectiveHealth = micOnline ? sensorH : { status: 'OFFLINE', label: 'Offline', lastSeen: 'ESP32-MIC disconnected' };
 
   // Count active sensors (only if MIC is online and we have recent data)
+  // IR sensor excluded — <8mm range makes it unusable for spatial assessment
   let activeSensorCount = 0;
-  if (micOnline && effectiveHealth.status === 'ONLINE') activeSensorCount = 3;
-  else if (micOnline && effectiveHealth.status === 'DEGRADED') activeSensorCount = 3;
+  if (micOnline && effectiveHealth.status === 'ONLINE') activeSensorCount = 2;
+  else if (micOnline && effectiveHealth.status === 'DEGRADED') activeSensorCount = 2;
 
   // Dashboard status
   let dashboardStatus = 'Offline';
-  if (activeSensorCount === 3) dashboardStatus = 'Active';
+  if (activeSensorCount === 2) dashboardStatus = 'Active';
   else if (activeSensorCount > 0) dashboardStatus = 'Degraded';
 
   // ── MULTI-SENSOR FUSION ─────────────────────────────────────────────────
-  // Combine all 3 sensors into a single threat assessment for the AI
+  // Combine ultrasonic + PIR into a single threat assessment for the AI
+  // IR sensor data silently discarded — <8mm range makes it unusable
   const hasDist = s.dist > 0 && s.dist <= 400;
   const distCm = hasDist ? s.dist : -1;
-  const irTriggered = s.ir === 1;
   const motionDetected = s.pir === 1;
 
   let threatLevel, threatSummary;
 
-  if (irTriggered && distCm > 0 && distCm < 20) {
-    // IR + ultrasonic both confirm very close object
+  if (distCm > 0 && distCm < 30) {
     threatLevel = '🔴 DANGER';
-    threatSummary = `STOP — object confirmed at ${distCm}cm by BOTH depth and proximity sensors. Collision imminent.`;
-  } else if (irTriggered) {
-    // IR triggered but ultrasonic might not align (IR has ~20cm range)
-    threatLevel = '🔴 DANGER';
-    threatSummary = `Something very close (~20cm or less) detected by proximity sensor. ${hasDist ? `Depth sensor reads ${distCm}cm.` : 'Depth sensor has no reading.'}`;
-  } else if (distCm > 0 && distCm < 30) {
-    // Ultrasonic shows very close, IR not triggered (might be above/below IR beam)
-    threatLevel = '🟠 WARNING';
-    threatSummary = `Object at ${distCm}cm ahead — very close. Proximity sensor is clear so it may be above or below waist level.`;
+    threatSummary = `STOP — object at ${distCm}cm ahead, very close. ${motionDetected ? 'It may be moving.' : 'Appears stationary.'}`;
   } else if (distCm >= 30 && distCm < 80) {
     threatLevel = '🟡 CAUTION';
     threatSummary = `Object detected ${distCm}cm ahead — about arm's length. ${motionDetected ? 'It may be moving.' : 'Appears stationary.'}`;
@@ -244,10 +235,9 @@ function buildSensorContext(sData) {
     ``,
     `Raw sensor data:`,
     `  Ultrasonic (depth):    ${hasDist ? distCm + 'cm to nearest object' : 'No object within 4m'} | ${effectiveHealth.label}`,
-    `  IR (close proximity):  ${irTriggered ? 'TRIGGERED — something within ~20cm' : 'Clear — nothing within 20cm'} | ${effectiveHealth.label}`,
     `  PIR (motion):          ${motionNote} | ${effectiveHealth.label}`,
     ``,
-    `Hardware: ESP32-MIC ${micOnline ? 'Online' : 'Offline'} | ESP32-CAM ${camOnline ? 'Online' : 'Offline'} | ${activeSensorCount}/3 sensors active`,
+    `Hardware: ESP32-MIC ${micOnline ? 'Online' : 'Offline'} | ESP32-CAM ${camOnline ? 'Online' : 'Offline'} | ${activeSensorCount}/2 sensors active`,
     `Timestamp: ${new Date().toISOString()}`,
   ];
 
@@ -556,9 +546,8 @@ RULES:
 
 SENSOR DATA (hardware truth — use this to confirm what you see):
 - Depth sensor: ${distHuman}
-- Close proximity: ${s.ir === 1 ? 'TRIGGERED — something within ~20cm, collision risk!' : 'Clear, nothing within touching range'}
 - Motion: ${s.pir === 1 ? 'Movement detected nearby — something is moving' : 'No movement — area is still'}
-- Combined threat: ${s.ir === 1 ? '🔴 DANGER — very close object' : (s.dist > 0 && s.dist < 50 ? '🟠 WARNING — object nearby' : '🟢 CLEAR')}`;
+- Combined threat: ${s.dist > 0 && s.dist < 30 ? '🔴 DANGER — very close object' : (s.dist > 0 && s.dist < 50 ? '🟠 WARNING — object nearby' : '🟢 CLEAR')}`;
 
     const userInstruction = userPrompt
       ? `The user asked: "${userPrompt}". Describe what you see with this in mind.`
