@@ -904,12 +904,22 @@ app.post('/api/pi/trigger-hardware-camera', (req, res) => {
 
   hardwareCameraDeferredResponse = res; 
   
+  // Use WS if available, otherwise fallback to polling
+  if (wsCAM && wsCAM.readyState === 1) {
+    console.log('[WS-CAM] Sending CAPTURE_NOW via WebSocket');
+    wsCAM.send('CAPTURE_NOW');
+  } else {
+    console.log('[API] WS-CAM not available, setting hardwareCameraRequest = true for polling');
+    hardwareCameraRequest = true;
+  }
+
   setTimeout(() => {
      if (hardwareCameraDeferredResponse === res) {
+         console.log('[TIMEOUT] ESP32 Camera request timed out after 45s');
          hardwareCameraDeferredResponse.status(504).json({ error: "ESP32 Camera did not respond in time." });
          hardwareCameraDeferredResponse = null;
      }
-  }, 15000); // 15 seconds for Wi-Fi Camera Uploads + Vision processing
+  }, 45000); 
 });
 
 // POST /api/pi/audio-input — Pi sends WAV/audio bytes → transcribe → classify → respond
@@ -1315,9 +1325,10 @@ app.post('/api/pi/trigger-hardware-mic', (req, res) => {
   hardwareIsCurrentlyListening = false; // Set to false until ESP32 acknowledges
   hardwareAudioDeferredResponse = res; // Hold the connection open!
   
-  // If the ESP is off or ignoring us, timeout after 15 seconds so we don't hang the webpage forever
+  // If the ESP is off or ignoring us, timeout after 45 seconds
   setTimeout(() => {
      if (hardwareAudioDeferredResponse === res) {
+         console.log('[TIMEOUT] ESP32 Mic request timed out after 45s');
          hardwareAudioDeferredResponse.status(504).json({ error: "ESP32 did not respond in time.", transcript: "Hardware Timeout" });
          hardwareAudioDeferredResponse = null;
          hardwareIsCurrentlyListening = false;
