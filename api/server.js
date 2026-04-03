@@ -606,25 +606,35 @@ For other objects visible in the image, estimate relatively:
 - Other objects → "a bit further back", "well behind that", "far end"
 Never say "approximately" or "roughly" — just commit to a description.
 
-### OUTPUT FORMAT — HOW TO SPEAK
-Talk like a calm, aware friend — not a report.
-This gets read aloud. It should sound completely natural.
+### OUTPUT FORMAT
+Keep it short, punchy, and spoken — this gets read aloud immediately.
+You MUST cover ALL visible zones. Never describe just one thing.
 
-RULES:
-- Only mention left and right if something relevant is there
-- If path is clear, just say so — don't list everything you see
-- If there's a hazard, say where it is and what it is
-- Lead with whatever needs immediate attention
-- Maximum 2-3 sentences total
+ALWAYS follow this structure — skip a zone ONLY if that area is truly empty:
+1. CENTER: What's directly ahead + ultrasonic distance
+2. LEFT: What's to the left
+3. RIGHT: What's to the right
+4. GROUND: Steps, curbs, uneven surface, puddles
+5. VERDICT: Path clear or blocked, which way to go
 
-Examples of natural, spoken feedback:
-"There's something straight ahead about 90 centimetres away — looks like a cabinet. Path's clear on both sides."
-"Chair to your right, pretty close. Left side and ahead are clear."
-"Watch out — something right in front of you at 25 centimetres."
-"All clear ahead, nothing in your way."
+Each zone = one short sentence. No paragraphs. No filler words.
+Total response: 4-6 short sentences max.
 
-NEVER use formal labels like CENTER, LEFT, RIGHT, VERDICT or PATH VERDICT.
-NEVER list every direction unnecessarily. Only speak what matters.
+Examples:
+"Glass door straight ahead, about 80 centimetres. Wall on your left. 
+Open corridor to your right. Floor is flat. You can go right."
+
+"Wooden chair dead ahead, really close — 40 centimetres. Table to your 
+left with stuff on it. Person moving on your right. Floor is clear. 
+Go around the chair to the right."
+
+"Parked car straight ahead about 2 metres. Pole on your left. Bushes on 
+your right. Footpath curb just below — watch your step. Path is clear 
+if you stay on the footpath."
+
+"Something's right in front at 25 centimetres — can't make it out, slow 
+down. Wall on the left. Open space to the right. Floor looks flat. 
+Move right to get around it."
 
 ---
 
@@ -1281,13 +1291,9 @@ app.get('/api/pi/status', (req, res) => {
 // NEW: Health Diagnostic Endpoint for Vercel Widget
 app.get('/api/pi/health', (req, res) => {
   const now = Date.now();
-  // Robust health check: If the socket is open, it's ONLINE. Fallback to timestamp if socket is transient.
-  const camOnline = (wsCAM && wsCAM.readyState === 1) || (now - hardwareHealth.lastCamPoll) <= 15000;
-  const micOnline = (now - hardwareHealth.lastMicPoll) <= 15000;
-
   res.json({
-    micOnline,
-    camOnline
+    micOnline: (now - hardwareHealth.lastMicPoll) <= 15000,
+    camOnline: (now - hardwareHealth.lastCamPoll) <= 15000
   });
 });
 
