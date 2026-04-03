@@ -1281,9 +1281,13 @@ app.get('/api/pi/status', (req, res) => {
 // NEW: Health Diagnostic Endpoint for Vercel Widget
 app.get('/api/pi/health', (req, res) => {
   const now = Date.now();
+  // Robust health check: If the socket is open, it's ONLINE. Fallback to timestamp if socket is transient.
+  const camOnline = (wsCAM && wsCAM.readyState === 1) || (now - hardwareHealth.lastCamPoll) <= 15000;
+  const micOnline = (now - hardwareHealth.lastMicPoll) <= 15000;
+
   res.json({
-    micOnline: (now - hardwareHealth.lastMicPoll) <= 15000,
-    camOnline: (now - hardwareHealth.lastCamPoll) <= 15000
+    micOnline,
+    camOnline
   });
 });
 
