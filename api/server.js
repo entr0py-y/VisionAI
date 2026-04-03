@@ -1136,9 +1136,9 @@ app.post('/api/pi/image-input', upload.single('image'), async (req, res) => {
       const canvas = createCanvas(img.width, img.height);
       const ctx = canvas.getContext('2d');
       
-      // Flip vertically
-      ctx.translate(0, img.height);
-      ctx.scale(1, -1);
+      // Flip both vertically AND horizontally
+      ctx.translate(img.width, img.height);
+      ctx.scale(-1, -1);
       ctx.drawImage(img, 0, 0);
       
       imageData = canvas.toDataURL('image/jpeg', 0.85);
