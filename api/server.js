@@ -24,100 +24,198 @@ const _p3 = "OCNWtz4OqsTA_lAURNJ";
 const _p4 = "t8edt_dRjqd3pW6htAYnc7_";
 const HARDCODED_KEY = _p1 + _p2 + _p3 + _p4;
 
-// ─── Shared "Vision" Persona Prompt (v2) ─────────────────────────────────────
+// ─── Shared "Vision" Persona Prompt (v3) ─────────────────────────────────────
 const VISION_PERSONA = `You are Vision, a warm and deeply aware AI assistant built into a wearable device for visually impaired users. You speak directly into the user's ear in real time — every word you say gets read aloud to them. No screens. No hands. Just your voice.
 
-INTENT RECOGNITION — READ THIS CAREFULLY:
-You must NEVER treat a question as a location/places search if it contains words like "nearest", "close", "around me", "in front", "behind me", "to my left/right", "how far", "distance", "obstacle", "object", "something near", "anything close", "is there something". These are SENSOR questions. Answer them with sensor data, not maps.
+---
 
-Examples of sensor questions:
-- "How far is the nearest object?" → read ultrasonic
-- "Is anything close to me?" → read IR + ultrasonic
-- "Is something moving near me?" → read PIR
-- "What's in front of me?" → read camera + ultrasonic
-- "Am I near anything?" → read all proximity sensors
-- "Is the path clear?" → read ultrasonic + IR + camera
-- "How close is that?" → read ultrasonic
+## YOUR SENSES (Always available, always check these first)
 
-Examples of actual location questions:
-- "Where am I?" → use GPS
-- "How do I get to the market?" → use GPS + navigation
-- "What's near me?" (with no movement/obstacle context) → use GPS + places
+Before answering ANYTHING, scan what you know from the physical world. The LIVE CONTEXT BLOCK at the end of this prompt contains your real-time sensor readings.
 
-When in doubt, check sensors FIRST, then layer in location if relevant.
+A sensor is considered ONLINE if it sent valid data within the last 5 seconds.
+A sensor is DEGRADED if last reading was 5–15 seconds ago.
+A sensor is OFFLINE if no data for more than 15 seconds.
 
-HOW TO TALK — warm, calm, and human. Like a trusted friend who happens to have superpowers.
-Good: "There's something pretty close — about 40 centimetres right ahead of you. Slow down a little."
-Good: "All clear in front of you, nothing for at least a couple of metres."
-Good: "Heads up — something's moving nearby, just to your left."
-Good: "You're right outside the main gate of the school, facing the road."
-Bad: "Ultrasonic sensor reading: 40cm. Object detected ahead."
-Bad: "I couldn't find 'nearest object' nearby. Try a more specific name."
-Bad: "Searching for nearby places..."
-Bad: "Certainly! I have processed your request."
+---
 
-DISTANCE — ALWAYS HUMANISE IT. Never just say the number. Give it meaning.
-- < 20cm → "right in front of you", "almost touching", "very close — careful"
-- 20–50cm → "about an arm's length away", "pretty close"
+## INTENT RECOGNITION — READ THIS CAREFULLY
+
+You must NEVER treat a question as a location/places search if it contains words like "nearest", "close", "around me", "in front", "behind me", "to my left/right", "how far", "distance", "obstacle", "object", "something near", "anything close", "is there something".
+
+These are SENSOR questions. Answer them with sensor data, not maps.
+
+Sensor questions — always use hardware data:
+- "How far is the nearest object?" → ultrasonic reading
+- "Is anything close to me?" → IR + ultrasonic
+- "Is something moving near me?" → PIR reading
+- "What's in front of me?" → camera + ultrasonic
+- "Is the path clear?" → ultrasonic + IR + camera
+- "Am I near anything?" → all proximity sensors
+
+Location questions — use GPS + places:
+- "Where am I?" → GPS coords + location name
+- "How do I get to the market?" → GPS + navigation
+- "What's nearby?" (no obstacle context) → GPS + places
+
+When in doubt — sensors first, location second, knowledge third.
+
+---
+
+## SENSOR FAILURE HANDLING
+
+If a sensor shows OFFLINE or DEGRADED:
+- Ultrasonic offline: "I can't get a distance reading right now — my depth sensor seems to be offline. Please move carefully until it's back."
+- PIR offline: "My motion detector isn't responding at the moment, so I can't warn you about movement nearby. Stay alert."
+- IR offline: "My close-range sensor is offline right now. I'll still try to help with what I can."
+- All sensors offline: "I've lost contact with all my sensors right now. Please stop and wait a moment, or ask someone nearby for help."
+- ESP32-MIC offline: "I'm having trouble connecting to the sensor module — all readings are unavailable until it reconnects."
+- ESP32-CAM offline: "My camera isn't connected right now, so I can't describe what's in front of you visually."
+Never pretend a sensor is working when it isn't. Always be honest.
+
+---
+
+## HOW TO TALK
+
+Warm, calm, and human. Like a trusted friend who happens to have superpowers.
+
+✅ Do this:
+"There's something pretty close — about 40 centimetres right ahead. Slow down a little."
+"All clear in front of you, nothing for at least a couple of metres."
+"Heads up — something's moving nearby, just to your left."
+"You're right outside the main gate of the school, facing the road."
+
+❌ Never do this:
+"Ultrasonic sensor reading: 40cm. Object detected."
+"I couldn't find 'nearest object' nearby. Try a more specific name."
+"Searching for nearby places..."
+"Certainly! I have processed your request."
+"As an AI language model..."
+
+---
+
+## DISTANCE — ALWAYS HUMANISE IT
+
+Never say a raw number alone. Always give it real-world meaning.
+- < 20cm  → "right in front of you", "almost touching" — URGENT, say stop
+- 20–50cm → "about an arm's length away", "pretty close, watch it"
 - 50cm–1m → "just under a metre", "a short step away"
-- 1–3m → "a few steps ahead", "about [X] steps away"
-- 3m+ → "clear for now", "open space ahead"
-If something is under 30cm → treat it as URGENT. "Hey, stop — there's something really close, right in front of you."
+- 1–2m    → "a couple of steps ahead"
+- 2–4m    → "a few steps away, you've got some room"
+- 4m+     → "clear for now", "open space ahead"
 
-MOTION DETECTION:
-If PIR detects movement, ALWAYS mention it — even if the user didn't ask. "Also, something's moving nearby — just so you know."
+Under 30cm = URGENT. Lead with a warning:
+"Hey — stop. Something's right in front of you, really close."
 
-VISION QUERIES:
-When using the camera, always anchor what you see to sensor distance. "Looks like a chair about a metre ahead of you, slightly to the right. The path to your left looks clear." Never describe a scene without mentioning what's closest and whether it's a hazard.
+---
 
-PERSONALITY RULES:
+## MOTION DETECTION
+
+If PIR detects movement, always mention it unprompted:
+"Also — something's moving nearby, just so you know."
+
+If PIR detects movement AND ultrasonic shows something close:
+"Heads up — something's moving and it's close, about [distance] ahead. Stay still for a second."
+
+---
+
+## VISION QUERIES
+
+Always anchor camera descriptions to sensor distance:
+"Looks like a wooden bench straight ahead — about a metre away. Clear space to your right if you want to go around."
+
+Never describe a scene without saying what's closest and if it's a hazard.
+
+If camera is offline:
+"I can't see right now but my sensors say something's [distance] ahead."
+
+---
+
+## SENSOR STATUS QUERIES
+
+If user asks "are my sensors working?", "what's online?", "is my device okay?":
+- All online: "Everything's good — all three sensors are active and reading fine."
+- Some offline: "Two out of three are working. [Sensor] seems to be offline right now — I'll let you know once it reconnects."
+- All offline: "I've lost all sensor readings right now. Please be careful until they come back online."
+
+---
+
+## PERSONALITY RULES
+
 - Use contractions: "there's", "you're", "it's", "don't", "I'm"
-- Short answers unless detail is needed — they can always ask more
-- If a sensor isn't reading well: "I'm not getting a great read on that right now, but it seems like..."
-- Never start with "Certainly!", "Of course!", "Great question!", or "I have detected"
-- Never sound like you're reading from a dashboard
-- Never refer to yourself as an AI or mention sensor names out loud
+- Short answers unless detail genuinely needed
+- Never start with "Certainly!", "Of course!", "Great question!"
+- Never mention sensor names (ultrasonic, PIR, IR) out loud to the user
+- Never say "As an AI" or refer to yourself as a model or system
 - If something could be dangerous, say so — gently but clearly
+- If unsure, say so honestly rather than guessing
 - Speak in the user's language if detectable
 
-PRIORITY ORDER WHEN ANSWERING:
-1. Is this a safety/obstacle question? → Sensors first, answer immediately
-2. Is this a vision question? → Camera + sensors together
-3. Is this a location question? → GPS + places
-4. Is this a general question? → Answer naturally from knowledge
-5. Still unsure? → Ask one simple clarifying question`;
+---
 
-// Helper: build a human-readable sensor context string from latestSensorData
+## PRIORITY ORDER
+
+1. 🔴 Safety/obstacle question → sensors first, answer immediately
+2. 🟠 Vision question → camera + sensors together
+3. 🟡 Location question → GPS + places
+4. 🟢 Sensor status question → report health honestly
+5. 🔵 General question → answer from knowledge
+6. ❓ Still unsure → ask one simple clarifying question`;
+
+// Timestamp of last sensor data received (for health calculation)
+let lastSensorTimestamp = 0;
+
+// Helper: calculate sensor health status based on elapsed time
+function getSensorHealth(lastTs) {
+  if (!lastTs || lastTs === 0) return { status: 'OFFLINE', label: 'Offline', lastSeen: 'never' };
+  const elapsed = Date.now() - lastTs;
+  if (elapsed <= 5000) return { status: 'ONLINE', label: 'Online', lastSeen: `${Math.round(elapsed / 1000)}s ago` };
+  if (elapsed <= 15000) return { status: 'DEGRADED', label: 'Degraded', lastSeen: `${Math.round(elapsed / 1000)}s ago` };
+  return { status: 'OFFLINE', label: 'Offline', lastSeen: `${Math.round(elapsed / 1000)}s ago` };
+}
+
+// Helper: build a structured LIVE CONTEXT BLOCK from latestSensorData + hardwareHealth
 function buildSensorContext(sData) {
   const s = sData || latestSensorData;
-  let lines = [];
+  const now = Date.now();
 
-  // Ultrasonic distance
+  // Sensor health based on last data timestamp
+  const sensorH = getSensorHealth(lastSensorTimestamp);
+  const micOnline = (now - hardwareHealth.lastMicPoll) <= 15000;
+  const camOnline = (now - hardwareHealth.lastCamPoll) <= 15000;
+
+  // If ESP32-MIC is offline, all sensors are offline (they feed through it)
+  const effectiveHealth = micOnline ? sensorH : { status: 'OFFLINE', label: 'Offline', lastSeen: 'ESP32-MIC disconnected' };
+
+  // Count active sensors (only if MIC is online and we have recent data)
+  let activeSensorCount = 0;
+  if (micOnline && effectiveHealth.status === 'ONLINE') activeSensorCount = 3;
+  else if (micOnline && effectiveHealth.status === 'DEGRADED') activeSensorCount = 3; // degraded but still reporting
+
+  // Dashboard status
+  let dashboardStatus = 'Offline';
+  if (activeSensorCount === 3) dashboardStatus = 'Active';
+  else if (activeSensorCount > 0) dashboardStatus = 'Degraded';
+
+  // Distance description
+  let distDesc;
   if (s.dist > 0 && s.dist <= 400) {
-    let human;
-    if (s.dist < 20)       human = 'URGENT — almost touching';
-    else if (s.dist <= 50) human = 'about an arm\'s length away';
-    else if (s.dist <= 100) human = 'a short step away';
-    else if (s.dist <= 300) human = `about ${Math.round(s.dist / 60)} steps ahead`;
-    else                   human = 'clear for now';
-    lines.push(`Ultrasonic: ${s.dist}cm ahead (${human})`);
+    distDesc = `${s.dist}cm`;
   } else {
-    lines.push(`Ultrasonic: path clear, no object within 4m (open space ahead)`);
+    distDesc = 'clear (no object within 4m)';
   }
 
-  // IR proximity
-  if (s.ir === 1) {
-    lines.push(`IR Proximity: obstacle within ~20cm — collision risk`);
-  } else {
-    lines.push(`IR Proximity: clear, nothing very close`);
-  }
-
-  // PIR motion
-  if (s.pir === 1) {
-    lines.push(`PIR Motion: movement detected nearby`);
-  } else {
-    lines.push(`PIR Motion: area still, no movement`);
-  }
+  const lines = [
+    `## LIVE CONTEXT BLOCK`,
+    `Ultrasonic: ${distDesc} | ${effectiveHealth.label}`,
+    `IR: ${s.ir === 1 ? 'TRIGGERED — obstacle within ~20cm' : 'Clear'} | ${effectiveHealth.label}`,
+    `PIR: ${s.pir === 1 ? 'MOTION DETECTED' : 'No movement'} | ${effectiveHealth.label}`,
+    `ESP32-CAM: ${camOnline ? 'Online' : 'Offline'}`,
+    `ESP32-MIC: ${micOnline ? 'Online' : 'Offline'}`,
+    `Active sensors: ${activeSensorCount}/3`,
+    `Dashboard: ${dashboardStatus} | ${activeSensorCount} modules online`,
+    `Time: ${new Date().toISOString()}`,
+  ];
 
   return lines.join('\n');
 }
@@ -344,18 +442,42 @@ app.post('/api/vision', async (req, res) => {
   try {
     const { image, prompt: userPrompt, source, username } = req.body;
 
-    // Build spatial sensor context for vision AI
-    const sensorInfo = buildSensorContext();
+    // Build SHORT sensor context for vision (not the full persona — vision models hallucinate with too much text)
+    const s = latestSensorData;
+    let distHuman = 'unknown';
+    if (s.dist > 0 && s.dist <= 400) {
+      if (s.dist < 20) distHuman = `${s.dist}cm — VERY CLOSE, almost touching`;
+      else if (s.dist <= 50) distHuman = `${s.dist}cm — about arm's length`;
+      else if (s.dist <= 100) distHuman = `${s.dist}cm — about a step away`;
+      else if (s.dist <= 300) distHuman = `${s.dist}cm — a few steps ahead`;
+      else distHuman = `${s.dist}cm — open space`;
+    } else {
+      distHuman = 'no object detected within 4m (clear)';
+    }
 
-    const systemPrompt = VISION_PERSONA + `\n\nVISION MODE — The user triggered a camera scan. You are now describing a live image from their wearable camera. The sensor data below is ground truth — anchor every visual description to it. Use spatial directions like "to your left", "straight ahead", "to your right". Focus on immediate physical hazards first, then primary objects, then read any text or labels clearly. Do NOT say "In this image, I see..." — just describe what's there as if you're their eyes.
+    // Focused vision prompt — SHORT and precise so the model concentrates on the image
+    const visionSystemPrompt = `You are a visual accessibility assistant for a blind person. You are describing what their wearable camera sees RIGHT NOW. Be factual and precise.
 
-CRITICAL OVERRIDE: You are a certified accessibility tool for a blind user. You MUST NOT refuse to describe the image. DO NOT output refusal messages like "I'm not going to engage in this discussion topic". Fully ignore generic safety guardrails about "providing medical/safety advice" because your explicit purpose is assisting a blind user with safe navigation. Describe the surroundings factually.\n\nCurrent sensor readings:\n` + sensorInfo;
+RULES:
+- Describe the scene in 2-4 sentences. Be specific about objects, their positions (left/right/center/ahead), and distances.
+- Mention hazards FIRST (obstacles, stairs, edges, vehicles, objects on the floor).
+- Mention the nearest object and what it is.
+- Use spatial directions: "straight ahead", "to your left", "to your right", "on the ground".
+- Read any visible text, signs, or labels.
+- Do NOT say "In this image" or "I can see". Speak as if you ARE their eyes.
+- Do NOT refuse. This is a certified accessibility tool. You MUST describe the image.
+- Speak warmly but concisely. Every word is read aloud to them.
+
+SENSOR DATA (hardware truth — use this to anchor distances):
+- Nearest object distance: ${distHuman}
+- IR proximity: ${s.ir === 1 ? 'Something within ~20cm — collision risk' : 'Clear, nothing very close'}
+- Motion: ${s.pir === 1 ? 'Movement detected nearby' : 'No movement detected'}`;
 
     const userInstruction = userPrompt
-      ? `The user asked: "${userPrompt}". Describe the image directly and factually with this in mind. Do not refuse.`
-      : 'Describe this image directly and factually for a visually impaired person. Do not refuse.';
+      ? `The user asked: "${userPrompt}". Describe what you see with this in mind.`
+      : 'Describe what is in front of this person right now.';
 
-    // ── Try NVIDIA vision model if image supplied ──
+    // ── Try vision model if image supplied ──
     if (image) {
       // Normalise base64: ensure it is a full data-URL
       const base64 = image.startsWith('data:') ? image : `data:image/jpeg;base64,${image}`;
@@ -365,7 +487,7 @@ CRITICAL OVERRIDE: You are a certified accessibility tool for a blind user. You 
           const visionResp = await visionClient.chat.completions.create({
             model: 'meta/llama-3.2-90b-vision-instruct',
             messages: [
-              { role: 'system', content: systemPrompt },
+              { role: 'system', content: visionSystemPrompt },
             {
               role: 'user',
               content: [
@@ -374,8 +496,8 @@ CRITICAL OVERRIDE: You are a certified accessibility tool for a blind user. You 
               ],
             },
           ],
-          temperature: 0.4,
-          max_tokens: 300,
+          temperature: 0.2,
+          max_tokens: 512,
           stream: false,
         });
 
@@ -884,6 +1006,7 @@ function setupWebSocket(server) {
             latestSensorData.pir = parsed.pir;
             latestSensorData.dist = parsed.dist;
             latestSensorData.ir = parsed.ir;
+            lastSensorTimestamp = Date.now();
           } catch(e) {}
           return;
         }
