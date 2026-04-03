@@ -3051,18 +3051,30 @@
         showTypingIndicator();
 
         try {
-          // Strip sensor-specific readings from old AI responses so the model
-          // can only use the LIVE sensor snapshot injected by the server.
+          // Strip ALL sensor/distance/obstacle descriptions from old AI responses
+          // so the model can ONLY use the LIVE sensor snapshot injected by the server.
           // Without this, follow-ups like "now?" parrot old distance values.
-          const sensorDataPattern = /(?:ultrasonic|depth sensor|pir|motion sensor|sensor)\s*(?:shows?|reads?|says?|detects?|indicates?|reports?)\s*[^.!?]*[.!?]?/gi;
-          const distancePattern = /(?:nothing\s+(?:closer|within)|(?:about|around|approximately)?\s*\d+\s*(?:cm|metres?|meters?|m)\s*(?:away|ahead|from))[^.!?]*[.!?]?/gi;
-          const clearPathPattern = /(?:path(?:'s|\s+is)\s+clear|clear\s+ahead|no\s+(?:object|obstacle)s?\s+(?:detected|within|nearby))[^.!?]*[.!?]?/gi;
 
           function stripSensorReadings(text) {
             return text
-              .replace(sensorDataPattern, '')
-              .replace(distancePattern, '')
-              .replace(clearPathPattern, '')
+              // Raw sensor mentions
+              .replace(/(?:ultrasonic|depth sensor|pir|motion sensor|sensor)\s*(?:shows?|reads?|says?|detects?|indicates?|reports?)\s*[^.!?]*[.!?]?/gi, '')
+              // Distance with units: "about 1.5 meters away", "45cm ahead", "4 metres"
+              .replace(/(?:about|around|roughly|approximately|nearly|almost)?\s*\d+(?:\.\d+)?\s*(?:cm|centimetres?|centimeters?|metres?|meters?|m)\s*(?:away|ahead|from|to|in front)?[^.!?]*[.!?]?/gi, '')
+              // Natural distance phrases: "arm's length", "a couple of steps", "a few steps"
+              .replace(/(?:arm'?s?\s+length|a\s+(?:couple|few|short)\s+(?:of\s+)?(?:steps?|metres?|meters?)|right\s+in\s+front\s+of\s+you|almost\s+touching|step\s+or\s+two|open\s+space)[^.!?]*[.!?]?/gi, '')
+              // "nothing within/closer than X" patterns
+              .replace(/(?:nothing|no\s+(?:object|obstacle)s?)\s+(?:within|closer\s+than|(?:detected\s+)?(?:within|nearby|in\s+range))[^.!?]*[.!?]?/gi, '')
+              // Path clear / all clear patterns
+              .replace(/(?:(?:path|area|space)\s*(?:is|'s|looks?)?\s*(?:clear|wide\s+open|open)|(?:all|everything'?s?)\s+clear|clear\s+(?:ahead|for\s+now|in\s+front)|no\s+(?:obstacles?|objects?)\s+(?:ahead|nearby|detected|in\s+(?:your\s+)?(?:way|path)))[^.!?]*[.!?]?/gi, '')
+              // Object close / something ahead patterns  
+              .replace(/(?:something(?:'s)?\s+(?:pretty\s+)?(?:close|near|right|ahead|there|moving)|there(?:'s)?\s+(?:something|an?\s+\w+)\s+(?:close|near|ahead|right|straight))[^.!?]*[.!?]?/gi, '')
+              // Movement / motion patterns
+              .replace(/(?:(?:something|anything|nothing)(?:'s)?\s+moving|movement\s+(?:detected|nearby)|area\s+is\s+(?:still|quiet)|no\s+movement)[^.!?]*[.!?]?/gi, '')
+              // "still clear", "path is still clear" follow-up patterns
+              .replace(/(?:still\s+(?:clear|nothing|no\s+\w+)|same\s+as\s+before|hasn'?t?\s+changed)[^.!?]*[.!?]?/gi, '')
+              // Cleanup: collapse multiple spaces/periods
+              .replace(/\.\s*\./g, '.')
               .replace(/\s{2,}/g, ' ')
               .trim();
           }

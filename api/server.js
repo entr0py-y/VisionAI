@@ -293,10 +293,28 @@ app.post('/api/ai/chat', async (req, res) => {
 
     if (history && Array.isArray(history)) {
       for (const entry of history) {
-        messages.push({
-          role: entry.role === 'user' ? 'user' : 'assistant',
-          content: entry.text || '',
-        });
+        let content = entry.text || '';
+        // Strip stale sensor/distance readings from old assistant messages
+        // so the model can ONLY rely on the fresh sensor snapshot
+        if (entry.role !== 'user' && content) {
+          content = content
+            .replace(/(?:about|around|roughly|approximately|nearly|almost)?\s*\d+(?:\.\d+)?\s*(?:cm|centimetres?|centimeters?|metres?|meters?|m)\s*(?:away|ahead|from|to|in front)?[^.!?]*[.!?]?/gi, '')
+            .replace(/(?:nothing|no\s+(?:object|obstacle)s?)\s+(?:within|closer\s+than|(?:detected\s+)?(?:within|nearby|in\s+range))[^.!?]*[.!?]?/gi, '')
+            .replace(/(?:(?:path|area|space)\s*(?:is|'s|looks?)?\s*(?:clear|wide\s+open|open)|(?:all|everything'?s?)\s+clear|clear\s+(?:ahead|for\s+now|in\s+front))[^.!?]*[.!?]?/gi, '')
+            .replace(/(?:arm'?s?\s+length|a\s+(?:couple|few|short)\s+(?:of\s+)?(?:steps?|metres?|meters?)|right\s+in\s+front\s+of\s+you|almost\s+touching|step\s+or\s+two|open\s+space)[^.!?]*[.!?]?/gi, '')
+            .replace(/(?:something(?:'s)?\s+(?:pretty\s+)?(?:close|near|right|ahead|there|moving)|there(?:'s)?\s+(?:something|an?\s+\w+)\s+(?:close|near|ahead|right|straight))[^.!?]*[.!?]?/gi, '')
+            .replace(/(?:(?:something|anything|nothing)(?:'s)?\s+moving|movement\s+(?:detected|nearby)|area\s+is\s+(?:still|quiet)|no\s+movement)[^.!?]*[.!?]?/gi, '')
+            .replace(/(?:still\s+(?:clear|nothing|no\s+\w+)|same\s+as\s+before)[^.!?]*[.!?]?/gi, '')
+            .replace(/\.{2,}/g, '.')
+            .replace(/\s{2,}/g, ' ')
+            .trim();
+        }
+        if (content) {
+          messages.push({
+            role: entry.role === 'user' ? 'user' : 'assistant',
+            content,
+          });
+        }
       }
     }
 
