@@ -128,6 +128,8 @@ void setup() {
       "[WS-CAM] WebSocket client started, waiting for connection...");
 }
 
+unsigned long lastCamPing = 0;
+
 // OPTIMIZED: No more HTTP polling — just service WebSocket
 void loop() {
   webSocket.loop();
@@ -135,6 +137,12 @@ void loop() {
   if (WiFi.status() != WL_CONNECTED) {
     delay(1000);
     return;
+  }
+
+  // Send a keep-alive ping every 5 seconds so the dashboard knows we are online
+  if (wsConnected && (millis() - lastCamPing > 5000)) {
+    webSocket.sendTXT("{\"type\":\"PING\"}");
+    lastCamPing = millis();
   }
 }
 
