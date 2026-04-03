@@ -1413,12 +1413,6 @@ app.post('/api/pi/trigger-hardware-mic', (req, res) => {
 });
 // ─────────────────────────────────────────────────────────────────────────────
 
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '..', 'index.html'));
-});
-
-// ─── Export for Vercel, Listen for Local ─────────────────────────────────────
-
 // New SSE endpoint for client-side vision processing
 app.get('/api/vision/stream', (req, res) => {
   res.writeHead(200, {
@@ -1446,6 +1440,12 @@ app.get('/api/vision/stream', (req, res) => {
     clearInterval(streamInterval);
   });
 });
+
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'index.html'));
+});
+
+// ─── Export for Vercel, Listen for Local ─────────────────────────────────────
 
 module.exports = app;
 
