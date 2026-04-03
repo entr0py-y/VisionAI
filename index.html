@@ -1333,6 +1333,19 @@
         to { opacity: 1; transform: scale(1); }
       }
 
+      .detection-log-container {
+        margin-top: 10px;
+        background: rgba(0,0,0,0.5);
+        color: #eee;
+        padding: 10px;
+        border-radius: var(--radius);
+        max-height: 250px;
+        overflow-y: auto;
+        font-family: monospace;
+      }
+      #detection-log-list { list-style-type: none; padding: 0; margin: 0; }
+      #detection-log-list li { font-size: 0.9em; }
+
       .typing-indicator {
         display: flex;
         gap: 4px;
@@ -2173,6 +2186,10 @@
       }
 
       function closeModal() {
+        if (activeModal === 'vision' && typeof onVisionModalClose === 'function') {
+           onVisionModalClose();
+        }
+
         document.getElementById("modalOverlay").classList.remove("active");
         document.getElementById("modalPanel").classList.remove("active");
         modalIntervals.forEach(clearInterval);
@@ -2217,16 +2234,25 @@
 
       function buildVisionContent() {
         return `
-<div class="modal-section">
-<div class="modal-section-title">Live Preview</div>
-<div class="live-preview">
-<div class="live-preview-grid"></div>
-<div class="live-preview-text">Camera Feed</div>
+    <div id="vision-status" class="status-indicator" style="margin-bottom: 10px; color: var(--success);">Loading vision model...</div>
+    <div class="live-preview-box" style="position: relative; width: 100%; max-width: 640px; margin: 0 auto; aspect-ratio: 4/3; background: #000; border-radius: var(--radius); overflow: hidden;">
+        <canvas id="vision-video-canvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover;"></canvas>
+        <canvas id="vision-overlay-canvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;"></canvas>
+        <div id="camera-offline-text" style="display: none; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #ff4444; background: rgba(0,0,0,0.7); font-weight: 600;">Camera offline</div>
+    </div>
+    <div id="vision-metrics" style="font-size: 0.8em; color: var(--muted); text-align: center; margin-top: 8px;">
+        FPS: -- | Backend: --
+    </div>
+
+<div class="modal-section" style="margin-top: 20px;">
+<div class="modal-section-title" style="display: flex; justify-content: space-between; align-items: center;">
+    <span>Detection Log</span>
+    <button id="toggle-vision-btn" style="background: var(--glass); border: 1px solid var(--divider); color: var(--accent); padding: 4px 10px; border-radius: 8px; font-size: 0.8em; cursor: pointer;">Pause Detection</button>
 </div>
+<div class="detection-log-container">
+  <ul id="detection-log-list">
+  </ul>
 </div>
-<div class="modal-section">
-<div class="modal-section-title">Detection Log</div>
-<div class="detection-log" id="detectionLog"></div>
 </div>`;
       }
 
@@ -2884,44 +2910,10 @@
         if (id === "personalization") initSliders();
       }
 
-      const detectedObjects = [
-        "Person",
-        "Chair",
-        "Door",
-        "Table",
-        "Car",
-        "Bicycle",
-        "Crosswalk",
-        "Stairs",
-        "Dog",
-        "Traffic Light",
-        "Bench",
-        "Pole",
-        "Wall",
-        "Curb",
-        "Sign",
-      ];
-
       function initVision() {
-        const log = document.getElementById("detectionLog");
-        if (!log) return;
-        function addEntry() {
-          if (!activeModal || activeModal !== "vision") return;
-          const obj =
-            detectedObjects[Math.floor(Math.random() * detectedObjects.length)];
-          const dist = (Math.random() * 8 + 0.5).toFixed(1);
-          const conf = (Math.random() * 30 + 70).toFixed(0);
-          const now = new Date();
-          const time = now.toTimeString().slice(0, 8);
-          const entry = document.createElement("div");
-          entry.className = "log-entry";
-          entry.innerHTML = `<span class="log-time">${time}</span><span>${obj} detected — ${dist}m — ${conf}%</span>`;
-          log.prepend(entry);
-          if (log.children.length > 8) log.removeChild(log.lastChild);
+        if (typeof onVisionModalOpen === 'function') {
+            onVisionModalOpen();
         }
-        addEntry();
-        const iv = setInterval(addEntry, 2000);
-        modalIntervals.push(iv);
       }
 
       function initMobility() {
@@ -3645,5 +3637,7 @@ function navSOS(el) {
          }, 2000);
       });
     </script>
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+    <script src="/js/VisionEngine.js"></script>
   </body>
 </html>

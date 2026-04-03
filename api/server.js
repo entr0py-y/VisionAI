@@ -201,16 +201,12 @@ function buildSensorContext(sData) {
   // Combine ultrasonic + PIR into a single threat assessment for the AI
   // IR sensor data silently discarded — <8mm range makes it unusable
   const hasDist = s.dist > 0 && s.dist <= 400;
-  const isDamaged = s.dist === -2;
   const distCm = hasDist ? s.dist : -1;
   const motionDetected = s.pir === 1;
 
   let threatLevel, threatSummary;
 
-  if (isDamaged) {
-    threatLevel = '⚪ UNKNOWN (SENSOR OFFLINE)';
-    threatSummary = `Ultrasonic distance sensor is currently disabled or damaged! Cannot determine if path is clear. Do not assume the path is clear. ${motionDetected ? 'PIR did detect movement nearby though!' : ''}`;
-  } else if (distCm > 0 && distCm < 30) {
+  if (distCm > 0 && distCm < 30) {
     threatLevel = '🔴 DANGER';
     threatSummary = `STOP — object at ${distCm}cm ahead, very close. ${motionDetected ? 'It may be moving.' : 'Appears stationary.'}`;
   } else if (distCm >= 30 && distCm < 80) {
@@ -223,17 +219,13 @@ function buildSensorContext(sData) {
     threatLevel = '🟢 CLEAR';
     threatSummary = `Open space ahead — nearest object is ${distCm}cm (${(distCm / 100).toFixed(1)}m) away. ${motionDetected ? 'Something is moving in the area.' : 'No movement detected.'}`;
   } else {
-    // No ultrasonic reading (timeout = -1)
+    // No ultrasonic reading
     threatLevel = motionDetected ? '🟡 CAUTION' : '🟢 CLEAR';
     threatSummary = `No object detected within 4m — path appears clear. ${motionDetected ? 'But movement was detected nearby — stay alert.' : 'No movement detected.'}`;
   }
 
   // Motion addon (always report if detected, regardless of distance)
   const motionNote = motionDetected ? 'YES — something is moving nearby' : 'No — area is still';
-
-  let rawDistText = 'No object within 4m';
-  if (hasDist) rawDistText = distCm + 'cm to nearest object';
-  if (isDamaged) rawDistText = 'SENSOR DAMAGED / DISABLED';
 
   const lines = [
     `## LIVE SENSOR READINGS`,
@@ -242,7 +234,7 @@ function buildSensorContext(sData) {
     `${threatSummary}`,
     ``,
     `Raw sensor data:`,
-    `  Ultrasonic (depth):    ${rawDistText} | ${effectiveHealth.label}`,
+    `  Ultrasonic (depth):    ${hasDist ? distCm + 'cm to nearest object' : 'No object within 4m'} | ${effectiveHealth.label}`,
     `  PIR (motion):          ${motionNote} | ${effectiveHealth.label}`,
     ``,
     `Hardware: ESP32-MIC ${micOnline ? 'Online' : 'Offline'} | ESP32-CAM ${camOnline ? 'Online' : 'Offline'} | ${activeSensorCount}/2 sensors active`,
@@ -1420,6 +1412,29 @@ app.get('*', (req, res) => {
 });
 
 // ─── Export for Vercel, Listen for Local ─────────────────────────────────────
+let latestFrame = null;
+
+// New SSE endpoint for client-side vision processing
+app.get('/api/vision/stream', (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive'
+  });
+
+  const streamInterval = setInterval(() => {
+    if (latestFrame) {
+      res.write(`data: ${latestFrame.toString('base64')}\n\n`);
+    } else {
+      res.write(`data: offline\n\n`);
+    }
+  }, 200);
+
+  req.on('close', () => {
+    clearInterval(streamInterval);
+  });
+});
+
 module.exports = app;
 
 const { WebSocketServer } = require('ws');
@@ -1629,8 +1644,12 @@ function setupWebSocket(server) {
           }
         }
       } else {
-        // Binary audio format
-        audioChunks.push(message);
+        if (isCAM) {
+          latestFrame = message; // Overwrite with latest CAM frame
+        } else {
+          // Binary audio format
+          audioChunks.push(message);
+        }
       }
     });
 

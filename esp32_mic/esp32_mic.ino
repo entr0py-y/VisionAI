@@ -86,14 +86,6 @@ void sortArray(long arr[], int n) {
 // Takes 1 sample per loop cycle, computes median of the trailing window.
 // This prevents spamming the HC-SR04 (which requires 60ms between pings)
 long readDistanceCM() {
-  // ─── SENSOR DAMAGED OVERRIDE ───
-  // You mentioned the ultrasonic sensor is damaged. 
-  // Returning -2 here tells the AI server that the sensor is explicitly broken,
-  // preventing it from falsely assuming the path is clear.
-  // 
-  // TODO: When you replace the sensor, delete the line below!
-  return -2; 
-  
   long d = singlePulseCM();
   
   // Debug to Serial Monitor so we can see raw pulses instantly
