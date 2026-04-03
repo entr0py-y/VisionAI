@@ -1129,6 +1129,24 @@ app.post('/api/pi/image-input', upload.single('image'), async (req, res) => {
 
     if (!imageData) return res.status(400).json({ error: 'No image provided' });
 
+    // OPTIMIZED: Invert the ESP32 camera image vertically using Canvas
+    try {
+      const { createCanvas, loadImage } = require('canvas');
+      const img = await loadImage(imageData);
+      const canvas = createCanvas(img.width, img.height);
+      const ctx = canvas.getContext('2d');
+      
+      // Flip vertically
+      ctx.translate(0, img.height);
+      ctx.scale(1, -1);
+      ctx.drawImage(img, 0, 0);
+      
+      imageData = canvas.toDataURL('image/jpeg', 0.85);
+      console.log('[HARDWARE] Image vertically inverted via canvas');
+    } catch (e) {
+      console.error('[HARDWARE] Failed to invert image server-side:', e.message);
+    }
+
     // OPTIMIZED: If this is a preload capture, store it and return immediately
     if (isPreload) {
       lastPreloadedImage = { data: imageData, timestamp: Date.now(), prompt: '' };
