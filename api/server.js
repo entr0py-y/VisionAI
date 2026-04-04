@@ -1739,7 +1739,12 @@ function setupWebSocket(server) {
             client.write(`data: {"event": "HARDWARE_BTN_RELEASED"}\n\n`);
           });
 
-          if (audioChunks.length === 0) return;
+          if (audioChunks.length === 0) {
+            streamClients.forEach(client => {
+              client.write(`data: {"event": "AUDIO_RESULT", "data": {"text": "I didn't capture any audio. Please try speaking closer to the microphone.", "transcript": ""}}\n\n`);
+            });
+            return;
+          }
           
           const audioBuffer = Buffer.concat(audioChunks);
           audioChunks = [];
@@ -1865,6 +1870,9 @@ function setupWebSocket(server) {
             
           } catch (err) {
             console.error('[WS] Process Error:', err);
+            streamClients.forEach(client => {
+              client.write(`data: {"event": "AUDIO_RESULT", "data": {"text": "I encountered an error processing your voice: ${err.message}", "transcript": ""}}\n\n`);
+            });
           }
         }
       } else {

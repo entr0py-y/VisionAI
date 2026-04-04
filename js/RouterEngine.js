@@ -34,8 +34,14 @@ const RouterEngine = (() => {
    * we fall back to general chat so the user always gets a response.
    * @param {string} text — raw user speech or typed text
    */
-  async function dispatch(text) {
-    if (!text || !text.trim()) return;
+  async function dispatch(text, pregenResponse = null) {
+    if (!text || !text.trim()) {
+      if (pregenResponse) {
+        uiMsg(pregenResponse, 'ai');
+        speak(pregenResponse);
+      }
+      return;
+    }
     const msg = text.trim();
     log('Dispatching: ' + msg);
 
@@ -75,7 +81,7 @@ const RouterEngine = (() => {
 
       case 'GENERAL_CHAT':
       default:
-        await _handleChat(msg);
+        await _handleChat(msg, pregenResponse);
         break;
     }
   }
@@ -230,8 +236,13 @@ const RouterEngine = (() => {
   }
 
   /* ─── GENERAL CHAT handler ─── */
-  async function _handleChat(msg) {
+  async function _handleChat(msg, pregenResponse = null) {
     log('→ GENERAL CHAT module');
+    if (pregenResponse) {
+      uiMsg(pregenResponse, 'ai');
+      speak(pregenResponse);
+      return;
+    }
     if (typeof processGeneralChat === 'function') {
       await processGeneralChat(msg);
     } else if (typeof sendChat === 'function') {

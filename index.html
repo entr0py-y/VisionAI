@@ -3597,11 +3597,14 @@ function navSOS(el) {
                const micBtn = document.getElementById('micBtn');
                if (micBtn) micBtn.classList.remove('recording');
 
-               if (typeof addChatMessage === 'function') addChatMessage("user", chatData.transcript);
+               if (typeof addChatMessage === 'function' && chatData.transcript.trim() !== '') {
+                   addChatMessage("user", chatData.transcript);
+               }
                if (typeof RouterEngine !== 'undefined') {
-                   RouterEngine.dispatch(chatData.transcript);
+                   RouterEngine.dispatch(chatData.transcript, chatData.text);
                } else if (typeof addChatMessage === 'function') {
                    addChatMessage("ai", chatData.text);
+                   if (typeof speakText === 'function') speakText(chatData.text);
                }
              }
            };
