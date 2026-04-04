@@ -9,8 +9,7 @@ let localStream = null;
 let currentCaretakerId = null;
 let sosEventId = null;
 
-const wsHost = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
-const wsUrl = `${wsHost}${window.location.host}/api/pi/ws`;
+const wsUrl = `wss://visionai-hig1.onrender.com/api/pi/ws`;
 const webrtcWs = new WebSocket(wsUrl);
 
 async function initSOS() {

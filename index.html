@@ -2054,8 +2054,7 @@
     <!-- Chat and Map Scripts -->
     <script>
       let currentUser = "User";
-      const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.hostname.startsWith("192.168.");
-      window.VISION_AID_BACKEND_URL = isLocal ? "" : "https://visionai-hig1.onrender.com";
+      window.VISION_AID_BACKEND_URL = "https://visionai-hig1.onrender.com";
       window.getBackendUrl = function (path) {
         const base = (window.VISION_AID_BACKEND_URL || "").replace(/\/$/, "");
         if (!base) return path;
@@ -2885,6 +2884,7 @@
 <div class="slider-thumb" style="left:70%"></div>
 </div>
 </div>
+<button class="scan-btn" onclick="logout()" style="background:var(--danger); color:white; margin-top:20px;">Logout</button>
 </div>`;
       }
 
@@ -3561,6 +3561,13 @@
               console.error(e);
               alert("Failed to link caretaker. " + (e.message || ""));
           }
+      }
+
+      function logout() {
+          const url = localStorage.getItem('supabase_url');
+          const key = localStorage.getItem('supabase_key');
+          const sb = window.supabase.createClient(url, key);
+          sb.auth.signOut().then(() => window.location.href = '/login.html');
       }
     </script>
     <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>

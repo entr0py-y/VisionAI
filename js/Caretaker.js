@@ -9,8 +9,7 @@ let linkedUser = null;
 let pc = null;
 let currentSOSId = null;
 
-const wsHost = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
-const wsUrl = `${wsHost}${window.location.host}/api/pi/ws`;
+const wsUrl = `wss://visionai-hig1.onrender.com/api/pi/ws`;
 const webrtcWs = new WebSocket(wsUrl);
 
 async function initCaretaker() {
