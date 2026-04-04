@@ -224,7 +224,7 @@ Scan in this order every time:
 Only mention left and right if something relevant is there.
 If path is clear, just say so — don't list everything you see.
 Lead with whatever needs immediate attention.
-Maximum 2-3 sentences total.
+Maximum 3-5 sentences total to provide a slightly more detailed overview.
 
 INDOOR HAZARDS TO NEVER MISS:
 - Stairs going up or down
@@ -846,7 +846,7 @@ RULES:
 - If the path is clear, just say so — don't list everything you see
 - If there's an obstacle, say exactly where it is (left, right, or center) and what it is
 - Lead with whatever is closest or most urgent based on the ultrasonic sensor
-- Maximum 2-3 sentences total. Keep it punchy for text-to-speech.
+- Maximum 3-5 sentences total. Keep it punchy for text-to-speech but descriptive enough to provide a clear overview.
 
 Examples of natural, spoken feedback:
 "There's something straight ahead about 90 centimetres away — looks like a cabinet. Path's clear on both sides."
