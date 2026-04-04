@@ -199,8 +199,22 @@
     <div class="header">
         <h1>Caretaker Portal</h1>
         <div class="user-ctrl">
-            <span id="caretaker-name">Loading...</span>
-            <button onclick="logout()">Logout</button>
+            <button onclick="toggleProfileModal()" style="display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.1); color: var(--text);">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                Profile
+            </button>
+            <button class="danger" onclick="logout()">Logout</button>
+        </div>
+    </div>
+    
+    <!-- Profile Modal -->
+    <div id="profile-modal" class="hidden" style="position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 1000; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(5px);">
+        <div class="card" style="min-width: 320px; max-width: 90%; position: relative; margin: 0;">
+            <button onclick="toggleProfileModal()" style="position: absolute; right: 15px; top: 15px; background: transparent; padding: 5px; color: var(--muted); box-shadow: none;">&times;</button>
+            <h2 style="margin-bottom: 20px; font-size: 1.3rem;">Caretaker Profile</h2>
+            <div id="profile-details" style="color: var(--text);">
+                <p style="color: var(--muted); text-align: center;">Loading profile data...</p>
+            </div>
         </div>
     </div>
     

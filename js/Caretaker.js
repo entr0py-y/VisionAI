@@ -18,6 +18,19 @@ async function initCaretaker() {
     if (!user) return window.location.href = '/login.html';
     caretakerUser = user;
     
+    // Load caretaker profile modal
+    const { data: profileData } = await sb.from('profiles').select('*').eq('id', user.id).single();
+    if (profileData) {
+        document.getElementById('profile-details').innerHTML = `
+            <div style="background: rgba(0,0,0,0.3); padding: 15px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05);">
+                <p style="margin: 8px 0;"><strong>Name:</strong> ${profileData.full_name}</p>
+                <p style="margin: 8px 0;"><strong>Email:</strong> ${user.email}</p>
+                <p style="margin: 8px 0;"><strong>Phone:</strong> ${profileData.phone || 'N/A'}</p>
+                <p style="margin: 8px 0;"><strong>Status:</strong> <span style="color: #34d399;">Active</span></p>
+            </div>
+        `;
+    }
+
     // Check pending links
     await fetchPendingLinks();
     
@@ -142,6 +155,15 @@ async function answerWebRTCCall() {
 
 function logout() {
     sb.auth.signOut().then(() => window.location.href='/login.html');
+}
+
+function toggleProfileModal() {
+    const modal = document.getElementById('profile-modal');
+    if (modal.classList.contains('hidden')) {
+        modal.classList.remove('hidden');
+    } else {
+        modal.classList.add('hidden');
+    }
 }
 
 window.onload = initCaretaker;
