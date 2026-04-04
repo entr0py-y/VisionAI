@@ -1746,6 +1746,7 @@ function setupWebSocket(server) {
             return;
           }
           
+          let transcript = "";
           const audioBuffer = Buffer.concat(audioChunks);
           audioChunks = [];
           
@@ -1770,7 +1771,6 @@ function setupWebSocket(server) {
             const wavBuffer = Buffer.concat([wavHeader, audioBuffer]);
             
             // OPTIMIZED: Switch STT to distil-whisper-large-v3-en with fallback
-            let transcript = "";
             const FormData = require('form-data');
             const fetch = require('node-fetch');
             const form = new FormData();
@@ -1853,7 +1853,7 @@ function setupWebSocket(server) {
 
             const chatCompletion = await Promise.race([
               chatPromise,
-              new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 6000))
+              new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 20000))
             ]);
             
             aiResponse = chatCompletion.choices[0].message.content.trim();
@@ -1871,7 +1871,7 @@ function setupWebSocket(server) {
           } catch (err) {
             console.error('[WS] Process Error:', err);
             streamClients.forEach(client => {
-              client.write(`data: {"event": "AUDIO_RESULT", "data": {"text": "I encountered an error processing your voice: ${err.message}", "transcript": ""}}\n\n`);
+              client.write(`data: {"event": "AUDIO_RESULT", "data": {"text": "I encountered an error processing your voice: ${err.message}", "transcript": ${JSON.stringify(transcript || "")}}}\n\n`);
             });
           }
         }
