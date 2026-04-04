@@ -7,6 +7,8 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
     />
     <title>Vision AID</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="/js/SOS.js"></script>
     <style>
       @import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap");
 
@@ -3485,13 +3487,17 @@
       setInterval(updateSensors, 5000);
 
 function navSOS(el) {
-        el.classList.add("sos-triggered");
-        const label = el.querySelector(".nav-label");
-        label.textContent = "SENT!";
-        setTimeout(() => {
-          el.classList.remove("sos-triggered");
-          label.textContent = "SOS";
-        }, 2500);
+        if(window.triggerSOS) {
+          window.triggerSOS();
+        } else {
+          el.classList.add("sos-triggered");
+          const label = el.querySelector(".nav-label");
+          label.textContent = "SENT!";
+          setTimeout(() => {
+            el.classList.remove("sos-triggered");
+            label.textContent = "SOS";
+          }, 2500);
+        }
       }
 
       // ===== SYSTEM BOOT — initialize state on page load =====

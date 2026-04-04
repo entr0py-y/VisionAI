@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vision AID - Auth</title>
+    <style>
+        :root { --bg: #121212; --glass: rgba(25, 25, 30, 0.8); --accent: #00ffcc; --text: #eee; }
+        body { background: var(--bg); color: var(--text); font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+        .container { background: var(--glass); padding: 2rem; border-radius: 12px; text-align: center; max-width: 400px; width: 90%; box-shadow: 0 4px 30px rgba(0,0,0,0.5); }
+        input, button { width: 100%; margin: 10px 0; padding: 12px; border-radius: 8px; border: none; box-sizing: border-box; }
+        input { background: #222; color: #fff; }
+        button { background: var(--accent); color: #000; font-weight: bold; cursor: pointer; transition: 0.3s; }
+        button:hover { filter: brightness(1.2); }
+        .role-btn { background: #333; color: var(--accent); margin-bottom: 20px; }
+        .hidden { display: none; }
+        .error-msg { color: #ff4444; font-size: 0.9em; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Vision AID</h1>
+        <div id="role-selection">
+            <h2>Select your role to continue</h2>
+            <button class="role-btn" onclick="selectRole('user')">I am a User</button>
+            <button class="role-btn" onclick="selectRole('caretaker')">I am a Caretaker</button>
+        </div>
+        <div id="auth-form" class="hidden">
+            <h2 id="form-title">Login</h2>
+            <input type="email" id="email" placeholder="Email Address">
+            <input type="password" id="password" placeholder="Password">
+            <input type="text" id="fullname" placeholder="Full Name" class="hidden">
+            <input type="tel" id="phone" placeholder="Phone Number (Optional)" class="hidden">
+            <div id="error-container" class="error-msg"></div>
+            <button onclick="doAuth()" id="submit-btn">Login</button>
+            <p onclick="toggleMode()" style="cursor:pointer; color: var(--accent); font-size: 0.9em; margin-top: 15px;">Need an account? Sign Up</p>
+            <p onclick="resetRole()" style="cursor:pointer; color: #aaa; font-size: 0.8em; margin-top: 10px;">Back to role selection</p>
+        </div>
+    </div>
+    
+    <!-- Using Supabase v2 -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+        // Replace these with your actual Supabase URL and Anon Key when deploying
+        const SUPABASE_URL = localStorage.getItem('supabase_url') || 'YOUR_SUPABASE_URL';
+        const SUPABASE_KEY = localStorage.getItem('supabase_key') || 'YOUR_SUPABASE_ANON_KEY';
+        const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        let selectedRole = 'user';
+        let isSignUp = false;
+
+        function selectRole(role) {
+            selectedRole = role;
+            document.getElementById('role-selection').classList.add('hidden');
+            document.getElementById('auth-form').classList.remove('hidden');
+            clearError();
+        }
+
+        function resetRole() {
+            document.getElementById('role-selection').classList.remove('hidden');
+            document.getElementById('auth-form').classList.add('hidden');
+        }
+
+        function toggleMode() {
+            isSignUp = !isSignUp;
+            document.getElementById('form-title').innerText = isSignUp ? 'Sign Up' : 'Login';
+            document.getElementById('submit-btn').innerText = isSignUp ? 'Create Account' : 'Login';
+            document.getElementById('fullname').classList.toggle('hidden', !isSignUp);
+            document.getElementById('phone').classList.toggle('hidden', !isSignUp);
+            
+            const toggleText = isSignUp ? 'Already have an account? Login' : 'Need an account? Sign Up';
+            event.target.innerText = toggleText;
+            clearError();
+        }
+
+        function clearError() {
+            document.getElementById('error-container').innerText = '';
+        }
+
+        function showError(msg) {
+            document.getElementById('error-container').innerText = msg;
+        }
+
+        async function doAuth() {
+            clearError();
+            const email = document.getElementById('email').value.trim();
+            const password = document.getElementById('password').value.trim();
+            const btn = document.getElementById('submit-btn');
+
+            if (!email || !password) return showError("Email and password are required.");
+            
+            btn.innerText = "Loading...";
+            btn.disabled = true;
+
+            try {
+                if (isSignUp) {
+                    const fullname = document.getElementById('fullname').value.trim();
+                    const phone = document.getElementById('phone').value.trim();
+                    if (!fullname) throw new Error("Full Name is required for signup.");
+
+                    const { data, error } = await supabase.auth.signUp({ email, password });
+                    if (error) throw error;
+                    if (data.user) {
+                        const { error: profileError } = await supabase.from('profiles').insert([{ 
+                            id: data.user.id, 
+                            role: selectedRole, 
+                            full_name: fullname,
+                            phone: phone || null
+                        }]);
+                        if (profileError) throw profileError;
+                        
+                        alert('Signup success! Logging you in...');
+                        await handleRedirect(data.user.id, selectedRole);
+                    }
+                } else {
+                    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+                    if (error) throw error;
+                    if (data.session) {
+                        const { data: profile, error: dbError } = await supabase.from('profiles').select('role').eq('id', data.user.id).single();
+                        if (dbError) throw dbError;
+                        await handleRedirect(data.user.id, profile?.role || selectedRole);
+                    }
+                }
+            } catch (err) {
+                showError(err.message);
+            } finally {
+                btn.innerText = isSignUp ? 'Create Account' : 'Login';
+                btn.disabled = false;
+            }
+        }
+
+        async function handleRedirect(userId, role) {
+            localStorage.setItem('vision_user_role', role);
+            if (role === 'user') {
+                window.location.href = '/index.html';
+            } else {
+                window.location.href = '/caretaker.html';
+            }
+        }
+
+        // Auto-check existing session on load
+        window.onload = async () => {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session) {
+                const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).single();
+                if (profile) handleRedirect(session.user.id, profile.role);
+            }
+        }
+    </script>
+</body>
+</html>

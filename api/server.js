@@ -490,6 +490,36 @@ async function aiComplete(messages, model = 'moonshotai/kimi-k2-instruct', maxTo
 // ═══════════════════════════════════════════════════════════════════════════════
 // POST /api/ai/chat — Streaming general chat (existing)
 // ═══════════════════════════════════════════════════════════════════════════════
+const webpush = require('web-push');
+
+app.post('/api/push/subscribe', (req, res) => {
+  const subscription = req.body;
+  // Usually you would save this to Supabase associated with the caretaker.
+  // For now, we return success.
+  res.status(201).json({});
+});
+
+app.post('/api/push/send', async (req, res) => {
+  const { subscription, payload } = req.body;
+  
+  if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
+      return res.status(500).json({ error: 'Push not configured' });
+  }
+  
+  try {
+      webpush.setVapidDetails(
+        `mailto:${process.env.VAPID_EMAIL || 'admin@visionaid.app'}`,
+        process.env.VAPID_PUBLIC_KEY,
+        process.env.VAPID_PRIVATE_KEY
+      );
+      await webpush.sendNotification(subscription, JSON.stringify(payload));
+      res.json({ success: true });
+  } catch (err) {
+      console.error("Push Error", err);
+      res.status(500).json({ error: 'Push failed' });
+  }
+});
+
 app.post('/api/ai/chat', async (req, res) => {
   try {
     const { message, history, systemPrompt, username } = req.body;
@@ -1663,11 +1693,14 @@ module.exports = app;
 
 const { WebSocketServer } = require('ws');
 
+// WebRTC connection map for SOS feature
+let webRTCConnections = new Map();
+
 function setupWebSocket(server) {
   const wss = new WebSocketServer({ server, path: '/api/pi/ws' });
 
   wss.on('connection', (ws, req) => {
-    console.log('[WS] New ESP32 Client Connected', req.socket.remoteAddress);
+    console.log('[WS] New Client Connected', req.socket.remoteAddress);
     let audioChunks = [];
     let isCAM = false; // OPTIMIZED: Track if this connection is ESP32-CAM
     
@@ -1675,6 +1708,22 @@ function setupWebSocket(server) {
 
       if (!isBinary) {
         const text = message.toString();
+
+        try {
+            const data = JSON.parse(text);
+            if (data.type === 'register' && data.userId) {
+                webRTCConnections.set(data.userId, ws);
+                ws.userId = data.userId;
+                return;
+            }
+            if (['webrtc_offer', 'webrtc_answer', 'webrtc_ice_candidate', 'webrtc_call_end'].includes(data.type)) {
+                const targetWs = webRTCConnections.get(data.to);
+                if (targetWs && targetWs.readyState === 1) { // OPEN
+                    targetWs.send(text);
+                }
+                return;
+            }
+        } catch(e) {}
 
         // OPTIMIZED: ESP32-CAM identification — separate from MIC
         if (text.startsWith('{"type":"ESP32_CAM"}')) {

@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vision AID - Caretaker Dashboard</title>
+    <style>
+        :root { --bg: #121212; --glass: rgba(25, 25, 30, 0.8); --accent: #00ffcc; --text: #eee; --danger: #ff4444; }
+        body { background: var(--bg); color: var(--text); font-family: sans-serif; margin: 0; padding: 20px; }
+        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 20px; margin-bottom: 20px; }
+        .card { background: var(--glass); padding: 20px; border-radius: 12px; margin-bottom: 20px; }
+        .danger-card { border: 2px solid var(--danger); background: rgba(255, 68, 68, 0.1); animation: pulse 2s infinite; }
+        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(255, 68, 68, 0.4); } 70% { box-shadow: 0 0 0 10px rgba(255, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 68, 68, 0); } }
+        button { background: var(--accent); border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: bold; }
+        button.danger { background: var(--danger); color: white; }
+        .hidden { display: none !important; }
+        #sos-alert-section { margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Caretaker Dashboard</h1>
+        <div><span id="caretaker-name">Loading...</span> | <button onclick="logout()">Logout</button></div>
+    </div>
+    
+    <div id="pending-requests" class="card hidden">
+        <h2>Pending Link Requests</h2>
+        <ul id="requests-list"></ul>
+    </div>
+    
+    <div id="linked-user" class="card">
+        <h2>Linked User Status</h2>
+        <div id="user-details"><p>Loading linked user...</p></div>
+        <p>Status: <span id="online-indicator">⚫ Offline</span></p>
+    </div>
+    
+    <div id="sos-alert-section" class="card danger-card hidden">
+        <h2>🚨 SOS ALERT 🚨</h2>
+        <p id="sos-message">User triggered SOS!</p>
+        <p id="sos-location">Location: Unknown</p>
+        <p id="sos-sensors">Sensors: Unknown</p>
+        <div style="margin-top: 20px; display: flex; gap: 10px;">
+            <button class="danger" onclick="answerWebRTCCall()">Answer Audio Call</button>
+            <button onclick="resolveSOS()">Mark Resolved</button>
+        </div>
+        <audio id="remoteAudio" autoplay></audio>
+    </div>
+    
+    <div class="card">
+        <h2>SOS History</h2>
+        <ul id="sos-history-list"></ul>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="/js/Caretaker.js"></script>
+</body>
+</html>
