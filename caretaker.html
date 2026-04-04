@@ -23,11 +23,16 @@
                 return;
             }
             const sb = window.supabase.createClient(url, key);
-            sb.auth.getSession().then(({ data }) => {
+            sb.auth.getSession().then(async ({ data }) => {
                 if (!data.session) {
                     window.location.replace('/login.html');
                 } else {
-                    document.documentElement.style.display = 'block';
+                    const { data: profile, error } = await sb.from('profiles').select('role').eq('id', data.session.user.id).single();
+                    if (profile && profile.role !== 'caretaker') {
+                        window.location.replace('/');
+                    } else {
+                        document.documentElement.style.display = 'block';
+                    }
                 }
             });
         })();
