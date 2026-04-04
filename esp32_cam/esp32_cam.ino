@@ -118,6 +118,13 @@ void setup() {
     Serial.printf("Camera init failed with error 0x%x\n", err);
   } else {
     Serial.println("Camera initialized.");
+    
+    // OPTIMIZED: Perform image inversion via hardware to avoid Node.js latency
+    sensor_t * s = esp_camera_sensor_get();
+    if (s) {
+      s->set_vflip(s, 1);
+      s->set_hmirror(s, 1);
+    }
   }
 
   // 3. OPTIMIZED: Connect to server via WebSocket (same path as ESP32-MIC)

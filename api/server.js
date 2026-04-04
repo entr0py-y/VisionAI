@@ -967,23 +967,29 @@ SENSOR DATA (hardware truth — use this to confirm what you see):
       const base64 = image.startsWith('data:') ? image : `data:image/jpeg;base64,${image}`;
 
       try {
-          console.log('[Vision] Sending image to vision model (phi-4-multimodal-instruct)...');
-          const visionResp = await visionClient.chat.completions.create({
-            model: 'microsoft/phi-4-multimodal-instruct',
+          console.log('[Vision] Sending image to primary vision model (Groq llama-3.2-11b)...');
+          
+          const groqVisionClient = new OpenAI({
+            baseURL: 'https://api.groq.com/openai/v1',
+            apiKey: process.env.GROQ_API_KEY
+          });
+
+          const visionResp = await groqVisionClient.chat.completions.create({
+            model: 'llama-3.2-11b-vision-preview',
             messages: [
               { role: 'system', content: visionSystemPrompt },
-            {
-              role: 'user',
-              content: [
-                { type: 'text', text: userInstruction },
-                { type: 'image_url', image_url: { url: base64 } },
-              ],
-            },
-          ],
-          temperature: 0.2,
-          max_tokens: 600,
-          stream: false,
-        });
+              {
+                role: 'user',
+                content: [
+                  { type: 'text', text: userInstruction },
+                  { type: 'image_url', image_url: { url: base64 } },
+                ],
+              },
+            ],
+            temperature: 0.2,
+            max_tokens: 600,
+            stream: false,
+          });
 
         const description = visionResp.choices?.[0]?.message?.content?.trim();
         console.log('[Vision] Model response received:', description?.slice(0, 80));
@@ -997,10 +1003,29 @@ SENSOR DATA (hardware truth — use this to confirm what you see):
             content: description
           }).catch(err => console.error('Supabase vision insert error:', err));
           
-          return res.json({ description, model: 'vision', image: base64 });
+          return res.json({ description, model: 'llama-3.2-11b-vision', image: base64 });
         }
       } catch (visionErr) {
-        console.error('[Vision] Model failed:', visionErr.status, visionErr.message);
+        console.error('[Vision] Groq Vision Model failed:', visionErr.status, visionErr.message);
+        
+        // Let's fallback to NVIDIA if Groq fails
+        try {
+            console.log('[Vision] Falling back to NVIDIA phi-4-multimodal-instruct...');
+            const fallbackResp = await visionClient.chat.completions.create({
+              model: 'microsoft/phi-4-multimodal-instruct',
+              messages: [
+                  { role: 'system', content: visionSystemPrompt },
+                  { role: 'user', content: [ { type: 'text', text: userInstruction }, { type: 'image_url', image_url: { url: base64 } } ] }
+              ],
+              temperature: 0.2, max_tokens: 600, stream: false,
+            });
+            const fbDesc = fallbackResp.choices?.[0]?.message?.content?.trim();
+            if (fbDesc) {
+                return res.json({ description: fbDesc, model: 'phi-4-fallback', image: base64 });
+            }
+        } catch(fallbackErr) {
+             console.error('[Vision] Fallback also failed:', fallbackErr.status, fallbackErr.message);
+        }
       }
     }
 
@@ -1360,23 +1385,8 @@ app.post('/api/pi/image-input', upload.single('image'), async (req, res) => {
 
     if (!imageData) return res.status(400).json({ error: 'No image provided' });
 
-    // OPTIMIZED: Invert the ESP32 camera image vertically using Canvas
-    try {
-      const { createCanvas, loadImage } = require('canvas');
-      const img = await loadImage(imageData);
-      const canvas = createCanvas(img.width, img.height);
-      const ctx = canvas.getContext('2d');
-      
-      // Flip both vertically AND horizontally
-      ctx.translate(img.width, img.height);
-      ctx.scale(-1, -1);
-      ctx.drawImage(img, 0, 0);
-      
-      imageData = canvas.toDataURL('image/jpeg', 0.85);
-      console.log('[HARDWARE] Image vertically inverted via canvas');
-    } catch (e) {
-      console.error('[HARDWARE] Failed to invert image server-side:', e.message);
-    }
+    // OPTIMIZED: Image inversion is now handled by the ESP32-CAM hardware directly.
+    // This entirely frees up the Node.js event loop, preventing severe lag spikes.
 
     try {
       const pureBase64 = imageData.includes('base64,') ? imageData.split('base64,')[1] : imageData;
