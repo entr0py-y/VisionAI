@@ -9,10 +9,19 @@
     <title>Vision AID</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script>
-      (function() {
+      (async function() {
+          try {
+              const res = await fetch('/api/config');
+              const cfg = await res.json();
+              if (cfg.supabaseUrl && cfg.supabaseUrl.startsWith('http')) {
+                  localStorage.setItem('supabase_url', cfg.supabaseUrl);
+                  localStorage.setItem('supabase_key', cfg.supabaseAnonKey);
+              }
+          } catch(e) {}
+          
           const url = localStorage.getItem('supabase_url');
           const key = localStorage.getItem('supabase_key');
-          if (!url || !key) {
+          if (!url || !key || !url.startsWith('http')) {
               window.location.replace('/login.html');
               return;
           }

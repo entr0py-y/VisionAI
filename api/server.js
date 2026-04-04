@@ -500,13 +500,13 @@ app.post('/api/push/subscribe', (req, res) => {
 });
 
 app.post('/api/push/send', async (req, res) => {
-  const { subscription, payload } = req.body;
+    const { subscription, payload } = req.body;
   
-  if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
+    if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
       return res.status(500).json({ error: 'Push not configured' });
-  }
+    }
   
-  try {
+    try {
       webpush.setVapidDetails(
         `mailto:${process.env.VAPID_EMAIL || 'admin@visionaid.app'}`,
         process.env.VAPID_PUBLIC_KEY,
@@ -514,14 +514,21 @@ app.post('/api/push/send', async (req, res) => {
       );
       await webpush.sendNotification(subscription, JSON.stringify(payload));
       res.json({ success: true });
-  } catch (err) {
-      console.error("Push Error", err);
-      res.status(500).json({ error: 'Push failed' });
-  }
+    } catch (err) {
+        console.error("Push Error", err);
+        res.status(500).json({ error: 'Push failed' });
+    }
+});
+
+app.get('/api/config', (req, res) => {
+  res.json({
+    supabaseUrl: process.env.SUPABASE_URL || 'https://dummysupabase.supabase.co',
+    supabaseAnonKey: process.env.SUPABASE_ANON_KEY || 'dummy_key'
+  });
 });
 
 app.post('/api/ai/chat', async (req, res) => {
-  try {
+    try {
     const { message, history, systemPrompt, username } = req.body;
     if (!message) return res.status(400).json({ error: 'Message is required' });
 

@@ -164,12 +164,24 @@
     <!-- Using Supabase v2 -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script>
-        // Replace these with your actual Supabase URL and Anon Key when deploying
-        const SUPABASE_URL = localStorage.getItem('supabase_url') || 'YOUR_SUPABASE_URL';
-        const SUPABASE_KEY = localStorage.getItem('supabase_key') || 'YOUR_SUPABASE_ANON_KEY';
+        let supabaseClient = null;
         
-        // Prevent re-declaration error by checking if it already exists from another script
-        const supabaseClient = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
+        async function fetchConfig() {
+            try {
+                const res = await fetch('/api/config');
+                const cfg = await res.json();
+                if (cfg.supabaseUrl && cfg.supabaseUrl.startsWith('http')) {
+                    localStorage.setItem('supabase_url', cfg.supabaseUrl);
+                    localStorage.setItem('supabase_key', cfg.supabaseAnonKey);
+                }
+            } catch(e) {}
+            
+            const SUPABASE_URL = localStorage.getItem('supabase_url') || 'https://placeholder.supabase.co';
+            const SUPABASE_KEY = localStorage.getItem('supabase_key') || 'dummy_key';
+            
+            // Prevent re-declaration error by checking if it already exists from another script
+            supabaseClient = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
+        }
 
         let selectedRole = 'user';
         let isSignUp = false;
@@ -211,6 +223,8 @@
 
         async function doAuth() {
             clearError();
+            if (!supabaseClient) await fetchConfig();
+            
             const email = document.getElementById('email').value.trim();
             const password = document.getElementById('password').value.trim();
             const btn = document.getElementById('submit-btn');
@@ -268,6 +282,7 @@
 
         // Auto-check existing session on load
         window.onload = async () => {
+            await fetchConfig();
             const { data: { session } } = await supabaseClient.auth.getSession();
             if (session) {
                 const { data: profile } = await supabaseClient.from('profiles').select('role').eq('id', session.user.id).single();

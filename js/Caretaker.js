@@ -1,7 +1,7 @@
 // js/Caretaker.js - Caretaker Dashboard Logic
 
-const SUPABASE_URL = localStorage.getItem('supabase_url') || 'YOUR_SUPABASE_URL';
-const SUPABASE_KEY = localStorage.getItem('supabase_key') || 'YOUR_SUPABASE_ANON_KEY';
+const SUPABASE_URL = localStorage.getItem('supabase_url') || 'https://placeholder.supabase.co';
+const SUPABASE_KEY = localStorage.getItem('supabase_key') || 'dummy_key';
 const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 let caretakerUser = null;
