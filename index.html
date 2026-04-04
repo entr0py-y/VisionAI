@@ -2020,8 +2020,8 @@
     <!-- Chat and Map Scripts -->
     <script>
       let currentUser = "User";
-      const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.hostname.startsWith("192.168.");
-      window.VISION_AID_BACKEND_URL = isLocal ? "" : "https://visionai-hig1.onrender.com";
+      const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.hostname.startsWith("192.168.") || window.location.protocol === "file:";
+      window.VISION_AID_BACKEND_URL = isLocal ? "http://localhost:3000" : "https://visionai-hig1.onrender.com";
       window.getBackendUrl = function (path) {
         const base = (window.VISION_AID_BACKEND_URL || "").replace(/\/$/, "");
         if (!base) return path;
