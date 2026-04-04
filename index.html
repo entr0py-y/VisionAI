@@ -7,43 +7,6 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
     />
     <title>Vision AID</title>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script>
-      (async function() {
-          try {
-              const res = await fetch('/api/config');
-              const cfg = await res.json();
-              if (cfg.supabaseUrl && cfg.supabaseUrl.startsWith('http')) {
-                  localStorage.setItem('supabase_url', cfg.supabaseUrl);
-                  localStorage.setItem('supabase_key', cfg.supabaseAnonKey);
-              }
-          } catch(e) {}
-          
-          const url = localStorage.getItem('supabase_url');
-          const key = localStorage.getItem('supabase_key');
-          if (!url || !key || !url.startsWith('http')) {
-              window.location.replace('/login.html');
-              return;
-          }
-          const sb = window.supabase.createClient(url, key);
-          sb.auth.getSession().then(async ({ data }) => {
-              if (!data.session) {
-                  window.location.replace('/login.html');
-              } else {
-                  const { data: profile, error } = await sb.from('profiles').select('role').eq('id', data.session.user.id).single();
-                  if (profile && profile.role === 'caretaker') {
-                      window.location.replace('/caretaker.html');
-                  } else {
-                      document.documentElement.style.display = 'block';
-                  }
-              }
-          });
-      })();
-    </script>
-    <style>
-        html { display: none; }
-    </style>
-    <script src="/js/SOS.js"></script>
     <style>
       @import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap");
 
@@ -2008,12 +1971,15 @@
         </svg>
         <span class="nav-label">Home</span>
       </div>
-      <div class="nav-item" data-tab="caretaker" onclick="promptCaretakerLink()">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-          <circle cx="12" cy="7" r="4"></circle>
+      <div class="nav-item" data-tab="scan" onclick="switchTab(this)">
+        <svg viewBox="0 0 24 24">
+          <path d="M1 4v-1a2 2 0 0 1 2-2h4" />
+          <path d="M17 1h4a2 2 0 0 1 2 2v1" />
+          <path d="M23 17v4a2 2 0 0 1-2 2h-4" />
+          <path d="M7 23H3a2 2 0 0 1-2-2v-4" />
+          <line x1="1" y1="12" x2="23" y2="12" />
         </svg>
-        <span class="nav-label">Caretaker</span>
+        <span class="nav-label">Scan</span>
       </div>
       <div class="nav-item nav-sos" data-tab="sos" onclick="navSOS(this)">
         <svg viewBox="0 0 24 24">
@@ -2054,7 +2020,8 @@
     <!-- Chat and Map Scripts -->
     <script>
       let currentUser = "User";
-      window.VISION_AID_BACKEND_URL = "https://visionai-hig1.onrender.com";
+      const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.hostname.startsWith("192.168.");
+      window.VISION_AID_BACKEND_URL = isLocal ? "" : "https://visionai-hig1.onrender.com";
       window.getBackendUrl = function (path) {
         const base = (window.VISION_AID_BACKEND_URL || "").replace(/\/$/, "");
         if (!base) return path;
@@ -2884,7 +2851,6 @@
 <div class="slider-thumb" style="left:70%"></div>
 </div>
 </div>
-<button class="scan-btn" onclick="logout()" style="background:var(--danger); color:white; margin-top:20px;">Logout</button>
 </div>`;
       }
 
@@ -3508,83 +3474,168 @@
 
             if (st) st.textContent = status;
             if (sc) sc.textContent = sensorCount + ' modules online';
-
-            // Update bottom dots
-            const dMic = document.getElementById('dotMic');
-            if (dMic) {
-                if (data.micOnline) dMic.classList.add('online');
-                else dMic.classList.remove('online');
-            }
-            const dCam = document.getElementById('dotCam');
-            if (dCam) {
-                if (data.camOnline) dCam.classList.add('online');
-                else dCam.classList.remove('online');
-            }
           })
           .catch(() => {
             // Can't reach backend — show offline
             if (st) st.textContent = 'Offline';
             if (sc) sc.textContent = '0 modules online';
-            const dMic = document.getElementById('dotMic');
-            if (dMic) dMic.classList.remove('online');
-            const dCam = document.getElementById('dotCam');
-            if (dCam) dCam.classList.remove('online');
           });
       }
       updateSensors();
       setInterval(updateSensors, 5000);
 
-      async function promptCaretakerLink() {
-          const caretakerName = prompt("Enter the exact Full Name of your Caretaker to link:");
-          if (!caretakerName) return;
+function navSOS(el) {
+        el.classList.add("sos-triggered");
+        const label = el.querySelector(".nav-label");
+        label.textContent = "SENT!";
+        setTimeout(() => {
+          el.classList.remove("sos-triggered");
+          label.textContent = "SOS";
+        }, 2500);
+      }
 
-          const url = localStorage.getItem('supabase_url');
-          const key = localStorage.getItem('supabase_key');
-          const sb = window.supabase.createClient(url, key);
+      // ===== SYSTEM BOOT — initialize state on page load =====
 
-          const { data: { user } } = await sb.auth.getUser();
-          if (!user) return alert("You must be logged in.");
+      // Load History Helper
+      async function loadChatHistory() {
+        if (!currentUser) return;
+        try {
+          const histResp = await fetch(getBackendUrl(`/api/history?username=${encodeURIComponent(currentUser)}`));
+          if (histResp.ok) {
+            const history = await histResp.json();
+            
+            // clear the chat container but keep the first system message
+            let hContainer = document.getElementById('chatContainer'); 
+            if(hContainer) { 
+               const msgs = hContainer.querySelectorAll('.chat-msg:not(.sys-msg)'); 
+               msgs.forEach(m=>m.remove()); 
+            }
+            
+            // reset memory
+            if (typeof conversationHistory !== 'undefined') conversationHistory = [];
 
-          try {
-              // Find caretaker profile
-              const { data: profiles, error: err } = await sb.from('profiles')
-                  .select('id, full_name, role')
-                  .eq('full_name', caretakerName)
-                  .eq('role', 'caretaker');
-              
-              if (err) throw err;
-              if (!profiles || profiles.length === 0) {
-                  return alert("No caretaker found with that name. Please verify the exact name.");
-              }
-              
-              const caretaker = profiles[0];
-              
-              // Create a pending link or accept linking
-              const { error: linkErr } = await sb.from('caretaker_links').insert([{
-                  user_id: user.id,
-                  caretaker_id: caretaker.id,
-                  status: 'pending'
-              }]);
-              
-              if (linkErr && linkErr.code === '23505') {
-                 // unique violation
-                 alert("A link request to this caretaker already exists.");
-                 return;
-              } else if (linkErr) throw linkErr;
-              
-              alert(`Link request sent to ${caretaker.full_name}! They must accept it on their dashboard before SOS alerts will work.`);
-          } catch (e) {
-              console.error(e);
-              alert("Failed to link caretaker. " + (e.message || ""));
+            if (Array.isArray(history)) {
+              history.forEach(msg => {
+                if (msg.role && msg.content) {
+                  const uiRole = msg.role === 'assistant' ? 'ai' : msg.role;
+                  addChatMessage(uiRole, msg.content, new Date(msg.created_at));
+                  
+                  if (typeof conversationHistory !== 'undefined') {
+                    const histRole = msg.role === 'assistant' ? 'model' : msg.role;
+                    conversationHistory.push({ role: histRole, text: msg.content });
+                  }
+                }
+              });
+            }
+            
+            // scroll down
+            const container = document.getElementById("chatContainer");
+            if (container) container.scrollTop = container.scrollHeight;
           }
+        } catch (err) {
+          console.error('[VisionAID] Failed to load history:', err);
+        }
       }
 
-      function logout() {
-          const url = localStorage.getItem('supabase_url');
-          const key = localStorage.getItem('supabase_key');
-          const sb = window.supabase.createClient(url, key);
-          sb.auth.signOut().then(() => window.location.href = '/login.html');
-      }
+      window.addEventListener('DOMContentLoaded', async () => {
+        console.log('[VisionAID] App initialized. Tap mic button to begin voice input if needed.');
+        loadChatHistory();
+      });
+    </script>
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Leaflet Routing Machine -->
+    <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
+    <!-- Vision AID Core Modules (load order matters) -->
+    <script src="js/VoiceGuide.js"></script>
+    <script src="js/MobilityMap.js"></script>
+    <script src="js/NavigationController.js"></script>
+    <script src="js/AIIntentParser.js"></script>
+    <!-- Vision AID Intelligence Pipeline -->
+    <script src="js/AIIntentClassifier.js"></script>
+    <script src="js/VisionController.js"></script>
+    <script src="js/RouterEngine.js"></script>
+    <script src="js/VoiceAssistantController.js"></script>
+    <!-- REAL-TIME GHOST CLICK PIPELINE (Physical Module To DOM Sink) -->
+    <script>
+      document.addEventListener("DOMContentLoaded", () => {
+         const backendUrl = localStorage.getItem("visionAidBackendUrl") || "https://visionai-hig1.onrender.com";
+         try {
+           const sse = new EventSource(`${backendUrl}/api/stream`);
+           sse.onmessage = (event) => {
+             const data = JSON.parse(event.data);
+             if (data.event === "HARDWARE_BTN_TOUCHED") {
+               const micBtn = document.getElementById('micBtn');
+               if (micBtn) micBtn.classList.add('recording');
+               
+               // Stop any ongoing TTS immediately and robustly
+               if (window.speechSynthesis) {
+                 window.speechSynthesis.__isCanceling = true;
+                 window.speechSynthesis.pause();
+                 window.speechSynthesis.cancel();
+               }
+               
+               // Interrupt any ongoing Chat Generation (fetch)
+               if (window.currentChatAbortCtrl) {
+                 try { window.currentChatAbortCtrl.abort(); } catch(e) {}
+               }
+               
+               // Auto-open AI Chat companion whenever physical button is touched
+               const overlay = document.getElementById('modalOverlay');
+               const isModalOpen = overlay && overlay.classList.contains('active');
+               if (!isModalOpen || activeModal !== 'companion') {
+                 const aiTab = document.querySelector('.nav-item[data-tab="ai"]');
+               if (aiTab) {
+                    switchTab(aiTab);
+                 }
+               }
+             } else if (data.event === "HARDWARE_BTN_RELEASED") {
+               const micBtn = document.getElementById('micBtn');
+               if (micBtn) micBtn.classList.remove('recording');
+             } else if (data.event === "AUDIO_RESULT") {
+               const chatData = data.data;
+               const micBtn = document.getElementById('micBtn');
+               if (micBtn) micBtn.classList.remove('recording');
+
+               if (typeof addChatMessage === 'function') addChatMessage("user", chatData.transcript);
+               if (typeof RouterEngine !== 'undefined') {
+                   RouterEngine.dispatch(chatData.transcript);
+               } else if (typeof addChatMessage === 'function') {
+                   addChatMessage("ai", chatData.text);
+               }
+             }
+           };
+           sse.onerror = (e) => {
+             console.log("[GhostClick] SSE Stream Reconnecting...");
+           };
+         } catch(e) {
+           console.log("Failed to map SSE pipeline.");
+         }
+
+         // HARDWARE HEALTH DIAGNOSTIC POLL
+         setInterval(async () => {
+           try {
+             const resp = await fetch(`${backendUrl}/api/pi/health`);
+             const data = await resp.json();
+             const dotCam = document.getElementById('dotCam');
+             const dotMic = document.getElementById('dotMic');
+             
+             if (dotCam) {
+               if (data.camOnline) dotCam.classList.add("online");
+               else dotCam.classList.remove("online");
+             }
+             if (dotMic) {
+               if (data.micOnline) dotMic.classList.add("online");
+               else dotMic.classList.remove("online");
+             }
+           } catch(e) {
+                const dotCam = document.getElementById('dotCam');
+                const dotMic = document.getElementById('dotMic');
+                if (dotCam) dotCam.classList.remove("online");
+                if (dotMic) dotMic.classList.remove("online");
+           }
+         }, 2000);
+      });
     </script>
     <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
     <script src="/js/VisionEngine.js"></script>
