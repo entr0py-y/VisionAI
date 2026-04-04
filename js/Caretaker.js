@@ -10,7 +10,7 @@ let pc = null;
 let currentSOSId = null;
 
 const wsHost = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
-const wsUrl = `${wsHost}${window.location.host}/ws`;
+const wsUrl = `${wsHost}${window.location.host}/api/pi/ws`;
 const webrtcWs = new WebSocket(wsUrl);
 
 async function initCaretaker() {
