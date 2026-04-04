@@ -371,7 +371,7 @@ Heading: {HEADING}
 Battery: {BATTERY_PCT}%
 Network: {NETWORK_MS}ms
 Time: {TIMESTAMP}
-\`;
+`;
 
 // Timestamp of last sensor data received (for health calculation)
 let lastSensorTimestamp = 0;

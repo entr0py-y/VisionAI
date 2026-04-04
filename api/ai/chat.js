@@ -368,7 +368,7 @@ Heading: {HEADING}
 Battery: {BATTERY_PCT}%
 Network: {NETWORK_MS}ms
 Time: {TIMESTAMP}
-\`;
+`;
 
     const fullSystemPrompt = systemPrompt || VISION_PERSONA;
 
