@@ -7,6 +7,9 @@ const OpenAI   = require('openai');
 const path     = require('path');
 const multer   = require('multer');
 const { safeInsert } = require('../lib/supabaseClient.cjs');
+const FormData = require('form-data');
+const fetch = require('node-fetch');
+const { WebSocketServer } = require('ws');
 
 const app    = express();
 const PORT   = process.env.PORT || 3000;
@@ -1084,7 +1087,7 @@ app.get('/api/history', async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════════
 app.post('/api/navigation/geocode', async (req, res) => {
   try {
-    const fetch = require('node-fetch');
+
     const { query, lat, lng } = req.body;
     if (!query) return res.status(400).json({ error: 'query required' });
 
@@ -1120,7 +1123,7 @@ app.post('/api/pi/trigger-hardware-camera', (req, res) => {
   const preloadAge = Date.now() - lastPreloadedImage.timestamp;
   if (lastPreloadedImage.data && preloadAge < 5000) {
     console.log(`[Pre-warm] Using preloaded image (age: ${preloadAge}ms)`);
-    const fetch = require('node-fetch');
+
     fetch(`http://localhost:${PORT}/api/vision`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1227,8 +1230,7 @@ app.post('/api/pi/audio-input', emitHardwareStart, express.raw({ type: 'applicat
     try {
       console.log(`[DEBUG] Attempting STT via Groq Whisper...`);
       
-      const FormData = require('form-data');
-      const fetch = require('node-fetch');
+
       
       const form = new FormData();
       form.append('file', wavBuffer, {
@@ -1375,7 +1377,7 @@ app.post('/api/pi/image-input', upload.single('image'), async (req, res) => {
   const isPreload = req.query.preload === 'true'; // OPTIMIZED: Pre-warm capture detection
   console.log(`\n[HARDWARE] 📷 Image received from ESP/Pi! IP: ${req.ip} Data size: ${req.file ? req.file.size : 'base64'} bytes (preload: ${isPreload})`);
   try {
-    const fetch = require('node-fetch');
+
     let imageData = req.body.image; // JSON base64
 
     // If multipart file upload
@@ -1671,7 +1673,7 @@ app.get('*', (req, res) => {
 
 module.exports = app;
 
-const { WebSocketServer } = require('ws');
+
 
 function setupWebSocket(server) {
   const wss = new WebSocketServer({ server, path: '/api/pi/ws' });
@@ -1680,6 +1682,7 @@ function setupWebSocket(server) {
     console.log('[WS] New ESP32 Client Connected', req.socket.remoteAddress);
     let audioChunks = [];
     let isCAM = false; // OPTIMIZED: Track if this connection is ESP32-CAM
+    let isRecordingRequestActive = false; // NEW: State lock to prevent bleeding
     
     ws.on('message', async (message, isBinary) => {
 
@@ -1737,11 +1740,15 @@ function setupWebSocket(server) {
 
         if (text === "START") {
           console.log('[WS] ESP32 triggered START recording');
+          isRecordingRequestActive = true;
           audioChunks = [];
           streamClients.forEach(client => {
             client.write(`data: {"event": "HARDWARE_BTN_TOUCHED"}\n\n`);
           });
         } else if (text === "STOP") {
+          if (!isRecordingRequestActive) return; // Ignore accidental or late STOP strings
+          isRecordingRequestActive = false;
+          const startTime = Date.now();
           console.log(`[WS] ESP32 triggered STOP. Processing ${audioChunks.length} chunks...`);
           
           // Tell the UI to turn off the red "Recording" UI immediately
@@ -1781,8 +1788,7 @@ function setupWebSocket(server) {
             const wavBuffer = Buffer.concat([wavHeader, audioBuffer]);
             
             // OPTIMIZED: Switch STT to distil-whisper-large-v3-en with fallback
-            const FormData = require('form-data');
-            const fetch = require('node-fetch');
+
             const form = new FormData();
             form.append('file', wavBuffer, { filename: 'audio.wav', contentType: 'audio/wav' });
             form.append('model', 'distil-whisper-large-v3-en'); // OPTIMIZED: Faster STT
@@ -1796,6 +1802,9 @@ function setupWebSocket(server) {
               },
               body: form
             });
+
+            const sttTime = Date.now() - startTime;
+            console.log(`[WS] STT took ${sttTime}ms`);
 
             if (response.ok) {
               const data = await response.json();
@@ -1833,7 +1842,7 @@ function setupWebSocket(server) {
             const _p4 = "t8edt_dRjqd3pW6htAYnc7_";
             const HARDCODED_KEY = _p1 + _p2 + _p3 + _p4;
             
-            const OpenAI = require('openai');
+
             const wsClient = new OpenAI({
               baseURL: process.env.GROQ_BASE_URL || 'https://api.groq.com/openai/v1',
               apiKey:  process.env.GROQ_API_KEY || process.env.OPENAI_API_KEY || HARDCODED_KEY,
@@ -1867,7 +1876,8 @@ function setupWebSocket(server) {
             ]);
             
             aiResponse = chatCompletion.choices[0].message.content.trim();
-            console.log(`[WS] AI: ${aiResponse}`);
+            const llmTime = Date.now() - startTime - sttTime;
+            console.log(`[WS] AI: ${aiResponse} (took ${llmTime}ms)`);
             
             // OPTIMIZED: Fire-and-forget Supabase write
             safeInsert('messages', { role: 'assistant', content: aiResponse, type: 'voice', username: "hardware_user" }).catch(() => {});
@@ -1890,7 +1900,9 @@ function setupWebSocket(server) {
           latestFrame = message; // Overwrite with latest CAM frame
         } else {
           // Binary audio format
-          audioChunks.push(message);
+          if (isRecordingRequestActive) {
+            audioChunks.push(message);
+          }
         }
       }
     });
