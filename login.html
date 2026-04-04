@@ -5,16 +5,139 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Vision AID - Auth</title>
     <style>
-        :root { --bg: #121212; --glass: rgba(25, 25, 30, 0.8); --accent: #00ffcc; --text: #eee; }
-        body { background: var(--bg); color: var(--text); font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-        .container { background: var(--glass); padding: 2rem; border-radius: 12px; text-align: center; max-width: 400px; width: 90%; box-shadow: 0 4px 30px rgba(0,0,0,0.5); }
-        input, button { width: 100%; margin: 10px 0; padding: 12px; border-radius: 8px; border: none; box-sizing: border-box; }
-        input { background: #222; color: #fff; }
-        button { background: var(--accent); color: #000; font-weight: bold; cursor: pointer; transition: 0.3s; }
-        button:hover { filter: brightness(1.2); }
-        .role-btn { background: #333; color: var(--accent); margin-bottom: 20px; }
-        .hidden { display: none; }
-        .error-msg { color: #ff4444; font-size: 0.9em; margin: 10px 0; }
+        @import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap");
+
+        :root {
+            --bg: #0f0f10;
+            --glass: rgba(255, 255, 255, 0.08);
+            --accent: #ffffff;
+            --text: #ffffff;
+            --muted: #a1a1aa;
+            --radius: 16px;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        .container {
+            background: var(--glass);
+            padding: 2.5rem 2rem;
+            border-radius: var(--radius);
+            text-align: center;
+            max-width: 380px;
+            width: 90%;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        }
+
+        h1 {
+            font-weight: 600;
+            margin-bottom: 5px;
+            letter-spacing: -0.5px;
+        }
+
+        h2 {
+            font-size: 1rem;
+            color: var(--muted);
+            font-weight: 400;
+            margin-bottom: 30px;
+        }
+
+        input, button {
+            width: 100%;
+            margin: 8px 0;
+            padding: 14px;
+            border-radius: 12px;
+            border: none;
+            box-sizing: border-box;
+            font-family: inherit;
+            font-size: 1rem;
+            transition: 0.2s ease;
+        }
+
+        input {
+            background: rgba(255, 255, 255, 0.05);
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        input::placeholder {
+            color: rgba(255, 255, 255, 0.3);
+        }
+
+        input:focus {
+            outline: none;
+            border-color: rgba(255, 255, 255, 0.3);
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        button {
+            background: var(--accent);
+            color: #000;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 15px;
+        }
+
+        button:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+        
+        button:active {
+            transform: translateY(0);
+        }
+
+        .role-btn {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--text);
+            margin-bottom: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .role-btn:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .error-msg {
+            color: #ff4444;
+            font-size: 0.85em;
+            margin: 10px 0;
+            min-height: 1.2em;
+        }
+        
+        .clickable-text {
+            cursor: pointer;
+            color: var(--muted);
+            font-size: 0.9em;
+            margin-top: 20px;
+            transition: color 0.2s;
+        }
+        
+        .clickable-text:hover {
+            color: var(--accent);
+        }
+        
+        #role-selection {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
     </style>
 </head>
 <body>
@@ -22,19 +145,19 @@
         <h1>Vision AID</h1>
         <div id="role-selection">
             <h2>Select your role to continue</h2>
-            <button class="role-btn" onclick="selectRole('user')">I am a User</button>
-            <button class="role-btn" onclick="selectRole('caretaker')">I am a Caretaker</button>
+            <button class="role-btn" id="btn-user">I am a User</button>
+            <button class="role-btn" id="btn-caretaker">I am a Caretaker</button>
         </div>
         <div id="auth-form" class="hidden">
             <h2 id="form-title">Login</h2>
-            <input type="email" id="email" placeholder="Email Address">
+            <input type="email" id="email" placeholder="Email Address" autocomplete="email">
             <input type="password" id="password" placeholder="Password">
-            <input type="text" id="fullname" placeholder="Full Name" class="hidden">
-            <input type="tel" id="phone" placeholder="Phone Number (Optional)" class="hidden">
+            <input type="text" id="fullname" placeholder="Full Name" class="hidden" autocomplete="name">
+            <input type="tel" id="phone" placeholder="Phone Number (Optional)" class="hidden" autocomplete="tel">
             <div id="error-container" class="error-msg"></div>
-            <button onclick="doAuth()" id="submit-btn">Login</button>
-            <p onclick="toggleMode()" style="cursor:pointer; color: var(--accent); font-size: 0.9em; margin-top: 15px;">Need an account? Sign Up</p>
-            <p onclick="resetRole()" style="cursor:pointer; color: #aaa; font-size: 0.8em; margin-top: 10px;">Back to role selection</p>
+            <button onclick="doAuth()" id="submit-btn" style="color: #000; display: block; width: 100%;">Login</button>
+            <p onclick="toggleMode()" class="clickable-text" id="toggle-auth-btn">Need an account? Sign Up</p>
+            <p onclick="resetRole()" class="clickable-text" style="font-size: 0.8rem; margin-top: 10px;">Back to role selection</p>
         </div>
     </div>
     
@@ -44,10 +167,15 @@
         // Replace these with your actual Supabase URL and Anon Key when deploying
         const SUPABASE_URL = localStorage.getItem('supabase_url') || 'YOUR_SUPABASE_URL';
         const SUPABASE_KEY = localStorage.getItem('supabase_key') || 'YOUR_SUPABASE_ANON_KEY';
-        const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        
+        // Prevent re-declaration error by checking if it already exists from another script
+        const supabaseClient = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
 
         let selectedRole = 'user';
         let isSignUp = false;
+
+        document.getElementById('btn-user').addEventListener('click', () => selectRole('user'));
+        document.getElementById('btn-caretaker').addEventListener('click', () => selectRole('caretaker'));
 
         function selectRole(role) {
             selectedRole = role;
@@ -69,7 +197,7 @@
             document.getElementById('phone').classList.toggle('hidden', !isSignUp);
             
             const toggleText = isSignUp ? 'Already have an account? Login' : 'Need an account? Sign Up';
-            event.target.innerText = toggleText;
+            document.getElementById('toggle-auth-btn').innerText = toggleText;
             clearError();
         }
 
@@ -98,10 +226,10 @@
                     const phone = document.getElementById('phone').value.trim();
                     if (!fullname) throw new Error("Full Name is required for signup.");
 
-                    const { data, error } = await supabase.auth.signUp({ email, password });
+                    const { data, error } = await supabaseClient.auth.signUp({ email, password });
                     if (error) throw error;
                     if (data.user) {
-                        const { error: profileError } = await supabase.from('profiles').insert([{ 
+                        const { error: profileError } = await supabaseClient.from('profiles').insert([{
                             id: data.user.id, 
                             role: selectedRole, 
                             full_name: fullname,
@@ -113,10 +241,10 @@
                         await handleRedirect(data.user.id, selectedRole);
                     }
                 } else {
-                    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+                    const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
                     if (error) throw error;
                     if (data.session) {
-                        const { data: profile, error: dbError } = await supabase.from('profiles').select('role').eq('id', data.user.id).single();
+                        const { data: profile, error: dbError } = await supabaseClient.from('profiles').select('role').eq('id', data.user.id).single();
                         if (dbError) throw dbError;
                         await handleRedirect(data.user.id, profile?.role || selectedRole);
                     }
@@ -140,9 +268,9 @@
 
         // Auto-check existing session on load
         window.onload = async () => {
-            const { data: { session } } = await supabase.auth.getSession();
+            const { data: { session } } = await supabaseClient.auth.getSession();
             if (session) {
-                const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).single();
+                const { data: profile } = await supabaseClient.from('profiles').select('role').eq('id', session.user.id).single();
                 if (profile) handleRedirect(session.user.id, profile.role);
             }
         }
