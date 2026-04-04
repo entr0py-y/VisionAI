@@ -43,10 +43,6 @@ const unsigned long ALERT_INTERVAL = 200;   // 200ms in HIGH ALERT mode
 const unsigned long IDLE_INTERVAL  = 400;   // Reduced from 2000ms to 400ms to prevent stale follow-up reads
 unsigned long currentSensorInterval = IDLE_INTERVAL;
 
-// GLOBAL BUFFERS: Prevent stack fragmentation and allow zero-latency reuse
-uint8_t chunk32[2048];
-int16_t chunk16[512];
-
 // ===========================
 // ULTRASONIC DISTANCE READER
 // Median-of-5 + EMA smoothing
@@ -265,7 +261,6 @@ void loop() {
     
     webSocket.sendTXT("STOP");
     isRecording = false;
-    i2s_zero_dma_buffer(I2S_PORT); // Clean the pipes immediately 
     
     delay(50);
   }
@@ -274,19 +269,22 @@ void loop() {
 
   // ─── REAL-TIME AUDIO STREAMING ───
   if (isRecording) {
+    uint8_t chunk32[2048];
     size_t bytesRead = 0;
     i2s_read(I2S_PORT, chunk32, 2048, &bytesRead, portMAX_DELAY);
 
     if (bytesRead > 0) {
       int samplesRead = bytesRead / 4; 
       int32_t* ptr32 = (int32_t*)chunk32;
+      int16_t chunk16[512];
       
       // Noise gate threshold: values below this are silenced
-      const int NOISE_GATE_THRESHOLD = 300; // Slightly increased for increased gain
+      // Increase this if background noise is still too high
+      const int NOISE_GATE_THRESHOLD = 200; 
 
       for(int i = 0; i < samplesRead; i++) {
-        // BOOST GAIN: Shifted by 13 instead of 15 (4x louder)
-        int32_t sample = ptr32[i] >> 13; 
+        // Decrease gain: shifted by 15 instead of 14 cuts volume in half
+        int32_t sample = ptr32[i] >> 15; 
         
         // Clamp to 16-bit range
         if (sample > 32767) sample = 32767;
