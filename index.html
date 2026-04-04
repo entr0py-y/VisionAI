@@ -3508,11 +3508,27 @@
 
             if (st) st.textContent = status;
             if (sc) sc.textContent = sensorCount + ' modules online';
+
+            // Update bottom dots
+            const dMic = document.getElementById('dotMic');
+            if (dMic) {
+                if (data.micOnline) dMic.classList.add('online');
+                else dMic.classList.remove('online');
+            }
+            const dCam = document.getElementById('dotCam');
+            if (dCam) {
+                if (data.camOnline) dCam.classList.add('online');
+                else dCam.classList.remove('online');
+            }
           })
           .catch(() => {
             // Can't reach backend — show offline
             if (st) st.textContent = 'Offline';
             if (sc) sc.textContent = '0 modules online';
+            const dMic = document.getElementById('dotMic');
+            if (dMic) dMic.classList.remove('online');
+            const dCam = document.getElementById('dotCam');
+            if (dCam) dCam.classList.remove('online');
           });
       }
       updateSensors();
