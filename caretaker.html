@@ -4,6 +4,21 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Vision AID - Caretaker Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+        (function() {
+            const url = localStorage.getItem('supabase_url');
+            const key = localStorage.getItem('supabase_key');
+            if (!url || !key) {
+                window.location.replace('/login.html');
+                return;
+            }
+            const sb = window.supabase.createClient(url, key);
+            sb.auth.getSession().then(({ data }) => {
+                if (!data.session) window.location.replace('/login.html');
+            });
+        })();
+    </script>
     <style>
         :root { --bg: #121212; --glass: rgba(25, 25, 30, 0.8); --accent: #00ffcc; --text: #eee; --danger: #ff4444; }
         body { background: var(--bg); color: var(--text); font-family: sans-serif; margin: 0; padding: 20px; }

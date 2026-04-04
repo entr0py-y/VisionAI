@@ -15,7 +15,10 @@ const webrtcWs = new WebSocket(wsUrl);
 
 async function initSOS() {
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    if (!user) {
+        window.location.replace('/login.html');
+        return;
+    }
 
     // Load active caretaker
     const { data: links } = await supabase.from('caretaker_links').select('*').eq('user_id', user.id).eq('status', 'accepted').single();

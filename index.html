@@ -8,6 +8,20 @@
     />
     <title>Vision AID</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+      (function() {
+          const url = localStorage.getItem('supabase_url');
+          const key = localStorage.getItem('supabase_key');
+          if (!url || !key) {
+              window.location.replace('/login.html');
+              return;
+          }
+          const sb = window.supabase.createClient(url, key);
+          sb.auth.getSession().then(({ data }) => {
+              if (!data.session) window.location.replace('/login.html');
+          });
+      })();
+    </script>
     <script src="/js/SOS.js"></script>
     <style>
       @import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap");
