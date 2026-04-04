@@ -1,8 +1,8 @@
 // js/Caretaker.js - Caretaker Dashboard Logic
 
-const SUPABASE_URL = localStorage.getItem('supabase_url') || 'https://placeholder.supabase.co';
+const SUPABASE_URL = localStorage.getItem('supabase_url') || 'https://placeholder.sb.co';
 const SUPABASE_KEY = localStorage.getItem('supabase_key') || 'dummy_key';
-const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const sb = window.sb.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 let caretakerUser = null;
 let linkedUser = null;
@@ -14,7 +14,7 @@ const wsUrl = `${wsHost}${window.location.host}/ws`;
 const webrtcWs = new WebSocket(wsUrl);
 
 async function initCaretaker() {
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { user } } = await sb.auth.getUser();
     if (!user) return window.location.href = '/login.html';
     caretakerUser = user;
     
@@ -25,7 +25,7 @@ async function initCaretaker() {
     await fetchLinkedUser();
     
     // Subscribe Realtime SOS
-    supabase.channel('sos_events')
+    sb.channel('sos_events')
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sos_events', filter: `caretaker_id=eq.${caretakerUser.id}` }, payload => {
             if (payload.new.status === 'active') showSOSAlert(payload.new);
         })
@@ -33,7 +33,7 @@ async function initCaretaker() {
 }
 
 async function fetchPendingLinks() {
-    const { data } = await supabase.from('caretaker_links').select('*, profiles!user_id(full_name)').eq('caretaker_id', caretakerUser.id).eq('status', 'pending');
+    const { data } = await sb.from('caretaker_links').select('*, profiles!user_id(full_name)').eq('caretaker_id', caretakerUser.id).eq('status', 'pending');
     
     const list = document.getElementById('requests-list');
     list.innerHTML = '';
@@ -49,13 +49,13 @@ async function fetchPendingLinks() {
 }
 
 async function acceptLink(id) {
-    await supabase.from('caretaker_links').update({ status: 'accepted' }).eq('id', id);
+    await sb.from('caretaker_links').update({ status: 'accepted' }).eq('id', id);
     document.getElementById('pending-requests').classList.add('hidden');
     await fetchLinkedUser();
 }
 
 async function fetchLinkedUser() {
-    const { data: links } = await supabase.from('caretaker_links').select('*, profiles!user_id(*)').eq('caretaker_id', caretakerUser.id).eq('status', 'accepted').single();
+    const { data: links } = await sb.from('caretaker_links').select('*, profiles!user_id(*)').eq('caretaker_id', caretakerUser.id).eq('status', 'accepted').single();
     
     const details = document.getElementById('user-details');
     if (links) {
@@ -64,14 +64,14 @@ async function fetchLinkedUser() {
         
         // ping realtime
         setInterval(async () => {
-            const { data: userProfile } = await supabase.from('profiles').select('is_online, last_seen').eq('id', linkedUser.id).single();
+            const { data: userProfile } = await sb.from('profiles').select('is_online, last_seen').eq('id', linkedUser.id).single();
             const ind = document.getElementById('online-indicator');
             const now = new Date();
             const seen = new Date(userProfile.last_seen);
             if (userProfile.is_online && (now - seen < 60000)) {
-                ind.innerHTML = '🟢 Online';
+                ind.innerHTML = '<span class="status-online">● Online</span>';
             } else {
-                ind.innerHTML = '⚫ Offline';
+                ind.innerHTML = '<span class="status-offline">○ Offline</span>';
             }
         }, 15000);
         
@@ -95,7 +95,7 @@ function showSOSAlert(sosEvent) {
 
 async function resolveSOS() {
     if(!currentSOSId) return;
-    await supabase.from('sos_events').update({ status: 'resolved' }).eq('id', currentSOSId);
+    await sb.from('sos_events').update({ status: 'resolved' }).eq('id', currentSOSId);
     document.getElementById('sos-alert-section').classList.add('hidden');
     currentSOSId = null;
     pc?.close();
@@ -141,7 +141,7 @@ async function answerWebRTCCall() {
 }
 
 function logout() {
-    supabase.auth.signOut().then(() => window.location.href='/login.html');
+    sb.auth.signOut().then(() => window.location.href='/login.html');
 }
 
 window.onload = initCaretaker;

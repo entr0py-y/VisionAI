@@ -2,7 +2,7 @@
 
 const SUPABASE_URL = localStorage.getItem('supabase_url') || 'https://placeholder.supabase.co';
 const SUPABASE_KEY = localStorage.getItem('supabase_key') || 'dummy_key';
-const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 let pc = null;
 let localStream = null;
@@ -14,25 +14,25 @@ const wsUrl = `${wsHost}${window.location.host}/ws`;
 const webrtcWs = new WebSocket(wsUrl);
 
 async function initSOS() {
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { user } } = await sb.auth.getUser();
     if (!user) {
         window.location.replace('/login.html');
         return;
     }
 
     // Load active caretaker
-    const { data: links } = await supabase.from('caretaker_links').select('*').eq('user_id', user.id).eq('status', 'accepted').single();
+    const { data: links } = await sb.from('caretaker_links').select('*').eq('user_id', user.id).eq('status', 'accepted').single();
     if (links) currentCaretakerId = links.caretaker_id;
 
     // Realtime Ping
     setInterval(() => {
-        supabase.from('profiles').update({ is_online: true, last_seen: new Date().toISOString() }).eq('id', user.id).then();
+        sb.from('profiles').update({ is_online: true, last_seen: new Date().toISOString() }).eq('id', user.id).then();
     }, 30000);
 }
 
 window.addEventListener('beforeunload', () => {
-    supabase.auth.getUser().then(({data}) => {
-        if(data.user) supabase.from('profiles').update({ is_online: false }).eq('id', data.user.id).then();
+    sb.auth.getUser().then(({data}) => {
+        if(data.user) sb.from('profiles').update({ is_online: false }).eq('id', data.user.id).then();
     });
 });
 
@@ -42,7 +42,7 @@ async function triggerSOS() {
         return;
     }
 
-    const user = (await supabase.auth.getUser()).data.user;
+    const user = (await sb.auth.getUser()).data.user;
     if (!user) return;
 
     // Build Payload
@@ -54,7 +54,7 @@ async function triggerSOS() {
         const { latitude, longitude } = pos.coords;
         
         // Insert DB Record
-        const { data, error } = await supabase.from('sos_events').insert([{
+        const { data, error } = await sb.from('sos_events').insert([{
             user_id: user.id,
             caretaker_id: currentCaretakerId,
             latitude,
@@ -89,7 +89,7 @@ function showSOSOverlay() {
 async function cancelSOS() {
     document.getElementById('sos-overlay')?.remove();
     if (sosEventId) {
-        await supabase.from('sos_events').update({ status: 'resolved' }).eq('id', sosEventId);
+        await sb.from('sos_events').update({ status: 'resolved' }).eq('id', sosEventId);
     }
     if (pc) pc.close();
     if (localStream) localStream.getTracks().forEach(t => t.stop());
@@ -109,7 +109,7 @@ async function startWebRTCOffer() {
     await pc.setLocalDescription(offer);
     
     // Forward signaling
-    const user = (await supabase.auth.getUser()).data.user;
+    const user = (await sb.auth.getUser()).data.user;
     webrtcWs.send(JSON.stringify({ type: 'webrtc_offer', from: user.id, to: currentCaretakerId, sdp: pc.localDescription }));
 }
 

@@ -24,27 +24,179 @@
             }
             const sb = window.supabase.createClient(url, key);
             sb.auth.getSession().then(({ data }) => {
-                if (!data.session) window.location.replace('/login.html');
+                if (!data.session) {
+                    window.location.replace('/login.html');
+                } else {
+                    document.documentElement.style.display = 'block';
+                }
             });
         })();
     </script>
     <style>
-        :root { --bg: #121212; --glass: rgba(25, 25, 30, 0.8); --accent: #00ffcc; --text: #eee; --danger: #ff4444; }
-        body { background: var(--bg); color: var(--text); font-family: sans-serif; margin: 0; padding: 20px; }
-        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 20px; margin-bottom: 20px; }
-        .card { background: var(--glass); padding: 20px; border-radius: 12px; margin-bottom: 20px; }
-        .danger-card { border: 2px solid var(--danger); background: rgba(255, 68, 68, 0.1); animation: pulse 2s infinite; }
-        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(255, 68, 68, 0.4); } 70% { box-shadow: 0 0 0 10px rgba(255, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 68, 68, 0); } }
-        button { background: var(--accent); border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: bold; }
-        button.danger { background: var(--danger); color: white; }
+        @import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap");
+        html { display: none; }
+        :root { 
+            --bg: #0f0f10; 
+            --glass: rgba(20, 20, 23, 0.6); 
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --accent: #ffffff; 
+            --text: #ffffff; 
+            --muted: #a1a1aa;
+            --danger: #ff5555; 
+            --success: #34d399;
+            --radius: 20px;
+        }
+
+        body { 
+            background: var(--bg); 
+            color: var(--text); 
+            font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif; 
+            margin: 0; 
+            padding: 30px 20px; 
+            -webkit-font-smoothing: antialiased;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .header { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            border-bottom: 1px solid var(--glass-border); 
+            padding-bottom: 20px; 
+            margin-bottom: 30px; 
+        }
+
+        .header h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin: 0;
+            letter-spacing: -0.5px;
+        }
+
+        .header .user-ctrl {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            color: var(--muted);
+            font-size: 0.9rem;
+        }
+
+        .card { 
+            background: var(--glass);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            padding: 24px; 
+            border-radius: var(--radius); 
+            border: 1px solid var(--glass-border);
+            margin-bottom: 20px; 
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+
+        .card h2 {
+            font-size: 1.1rem;
+            font-weight: 500;
+            margin-top: 0;
+            margin-bottom: 15px;
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .danger-card { 
+            border: 1px solid var(--danger); 
+            background: rgba(255, 85, 85, 0.1); 
+            animation: pulse-border 2s infinite; 
+        }
+
+        @keyframes pulse-border { 
+            0% { box-shadow: 0 0 0 0 rgba(255, 85, 85, 0.4); } 
+            70% { box-shadow: 0 0 0 10px rgba(255, 85, 85, 0); } 
+            100% { box-shadow: 0 0 0 0 rgba(255, 85, 85, 0); } 
+        }
+
+        button { 
+            background: var(--accent); 
+            color: #000; 
+            border: none; 
+            padding: 10px 18px; 
+            border-radius: 10px; 
+            cursor: pointer; 
+            font-weight: 600; 
+            font-family: inherit;
+            font-size: 0.9rem;
+            transition: all 0.2s ease;
+        }
+
+        button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(255,255,255,0.15);
+        }
+
+        button.danger { 
+            background: var(--danger); 
+            color: white; 
+        }
+        
+        button.danger:hover {
+            box-shadow: 0 4px 12px rgba(255,85,85,0.3);
+        }
+
         .hidden { display: none !important; }
-        #sos-alert-section { margin-top: 20px; }
+        
+        #user-details p {
+            color: var(--muted);
+            margin: 5px 0;
+        }
+
+        #online-indicator {
+            font-weight: 500;
+            padding: 4px 10px;
+            border-radius: 20px;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid var(--glass-border);
+            display: inline-block;
+            margin-top: 10px;
+        }
+
+        .status-online { color: var(--success); }
+        .status-offline { color: var(--muted); }
+
+        ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        
+        ul li {
+            padding: 12px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 10px;
+            margin-bottom: 8px;
+            border: 1px solid var(--glass-border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+        
+        a:hover {
+            text-decoration: underline;
+        }
     </style>
 </head>
 <body>
     <div class="header">
-        <h1>Caretaker Dashboard</h1>
-        <div><span id="caretaker-name">Loading...</span> | <button onclick="logout()">Logout</button></div>
+        <h1>Caretaker Portal</h1>
+        <div class="user-ctrl">
+            <span id="caretaker-name">Loading...</span>
+            <button onclick="logout()">Logout</button>
+        </div>
     </div>
     
     <div id="pending-requests" class="card hidden">
@@ -52,10 +204,10 @@
         <ul id="requests-list"></ul>
     </div>
     
-    <div id="linked-user" class="card">
+    <div class="card" style="max-width:800px; margin: 0 auto; margin-bottom: 20px;">
         <h2>Linked User Status</h2>
         <div id="user-details"><p>Loading linked user...</p></div>
-        <p>Status: <span id="online-indicator">⚫ Offline</span></p>
+        <div id="online-indicator"><span class="status-offline">○ Offline</span></div>
     </div>
     
     <div id="sos-alert-section" class="card danger-card hidden">

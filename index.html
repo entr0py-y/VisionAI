@@ -27,10 +27,17 @@
           }
           const sb = window.supabase.createClient(url, key);
           sb.auth.getSession().then(({ data }) => {
-              if (!data.session) window.location.replace('/login.html');
+              if (!data.session) {
+                  window.location.replace('/login.html');
+              } else {
+                  document.documentElement.style.display = 'block';
+              }
           });
       })();
     </script>
+    <style>
+        html { display: none; }
+    </style>
     <script src="/js/SOS.js"></script>
     <style>
       @import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap");
