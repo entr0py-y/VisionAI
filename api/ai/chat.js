@@ -78,7 +78,7 @@ Warm, calm, and human. Like a trusted friend who happens to have superpowers.
     }
 
     // Use Gemini REST API with streaming
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:streamGenerateContent?alt=sse&key=${apiKey}`;
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse&key=${apiKey}`;
 
     const response = await fetch(geminiUrl, {
       method: 'POST',
