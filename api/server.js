@@ -1678,6 +1678,18 @@ const { WebSocketServer } = require('ws');
 
 /** 
  * Convert 16-bit PCM (signed) to 8-bit PCM (unsigned).
+ * Halves byte size to accelerate upload to Groq. 
+ */
+function pcm16to8(pcm16) {
+  const pcm8 = Buffer.alloc(pcm16.length / 2);
+  for (let i = 0; i < pcm8.length; i++) {
+    const sample = pcm16.readInt16LE(i * 2);
+    // Convert -32768..32767 to 0..255 (128 is zero)
+    pcm8[i] = ((sample / 256) + 128) & 0xff;
+  }
+  return pcm8;
+}
+
 /**
  * Trim leading/trailing silence from 8-bit PCM.
  * Threshold of 5 means samples in [123, 133] are considered silent. 
@@ -1699,8 +1711,10 @@ function setupWebSocket(server) {
 
   wss.on('connection', (ws, req) => {
     console.log('[WS] New ESP32 Client Connected', req.socket.remoteAddress);
-    let audioChunks = []; // Fast array-based chunking
+    let audioBuffer = Buffer.alloc(0); // Fix 2: Pre-assembled buffer
     let isCAM = false; 
+    let partialSent = false;
+    let partialTranscript = "";
     
     ws.on('message', async (message, isBinary) => {
 
@@ -1758,71 +1772,66 @@ function setupWebSocket(server) {
 
         if (text === "START") {
           console.log('[WS] ESP32 triggered START recording');
-          audioChunks = []; 
+          audioBuffer = Buffer.alloc(0); // Fix 2: Start fresh
+          partialSent = false;
+          partialTranscript = "";
           streamClients.forEach(client => {
             client.write(`data: {"event": "HARDWARE_BTN_TOUCHED"}\n\n`);
           });
         } else if (text === "STOP") {
-          const currentAudio = Buffer.concat(audioChunks);
-          audioChunks = []; 
+          // Fix 3: Trigger transcription immediately on the same tick
+          const currentAudio = audioBuffer;
+          audioBuffer = Buffer.alloc(0); 
           
-          console.log(`[WS] ESP32 triggered STOP. Dispatching STT...`);
+          console.log(`[WS] ESP32 triggered STOP. Immediate STT dispatch starting...`);
           
-          // UI Feedback: Immediately tell the web dashboard that we are processing
+          // Tell the UI to turn off the red "Recording" UI immediately
           streamClients.forEach(client => {
             client.write(`data: {"event": "HARDWARE_BTN_RELEASED"}\n\n`);
-            client.write(`data: {"event": "VOICE_PROCESSING", "data": "Processing audio..."}\n\n`);
           });
 
-          if (currentAudio.length === 0) {
+          if (currentAudio.length === 0 && !partialTranscript) {
             streamClients.forEach(client => {
-              client.write(`data: {"event": "VOICE_ERROR", "data": "No audio captured."}\n\n`);
+              client.write(`data: {"event": "AUDIO_RESULT", "data": {"text": "I didn't capture any audio. Please speak clearly.", "transcript": ""}}\n\n`);
             });
             return;
           }
 
-          const audioToProcess = currentAudio;
+          // FIX 4: Final silence trim from end of recording
+          const trimmed = trim8BitSilence(currentAudio);
+          
+          // FIX 2/3: Dispatch Groq request immediately
           const processFinalSTT = async () => {
             try {
-              const dataSize = audioToProcess.length;
+              // Assemble WAV header for the 8-bit stream
+              const dataSize = trimmed.length;
               const wavHeader = Buffer.alloc(44);
               wavHeader.write('RIFF', 0);
               wavHeader.writeUInt32LE(36 + dataSize, 4);
               wavHeader.write('WAVE', 8);
               wavHeader.write('fmt ', 12);
               wavHeader.writeUInt32LE(16, 16); 
-              wavHeader.writeUInt16LE(1, 20); 
-              wavHeader.writeUInt16LE(1, 22); 
-              wavHeader.writeUInt32LE(16000, 24); 
-              wavHeader.writeUInt32LE(32000, 28); 
-              wavHeader.writeUInt16LE(2, 32); 
-              wavHeader.writeUInt16LE(16, 34); 
+              wavHeader.writeUInt16LE(1, 20); // PCM
+              wavHeader.writeUInt16LE(1, 22); // Mono
+              wavHeader.writeUInt32LE(16000, 24); // 16kHz
+              wavHeader.writeUInt32LE(16000, 28); // 8-bit means 1 byte per sample, rate 16000
+              wavHeader.writeUInt16LE(1, 32); // BlockAlign (1 byte)
+              wavHeader.writeUInt16LE(8, 34); // Fix 6: 8-bit!
               wavHeader.write('data', 36);
               wavHeader.writeUInt32LE(dataSize, 40);
 
-              const wavBuffer = Buffer.concat([wavHeader, audioToProcess]);
+              const wavBuffer = Buffer.concat([wavHeader, trimmed]);
               
               const FormData = require('form-data');
               const fetch = require('node-fetch');
-              
-              // Fallback Key construction to bypass missing .env
-              const _p1 = "nvapi-S_iKSD-";
-              const _p2 = "CJDP6_l9TeApwME";
-              const _p3 = "OCNWtz4OqsTA_lAURNJ";
-              const _p4 = "t8edt_dRjqd3pW6htAYnc7_";
-              const FALLBACK_KEY = _p1 + _p2 + _p3 + _p4;
-              
               const form = new FormData();
               form.append('file', wavBuffer, { filename: 'audio.wav', contentType: 'audio/wav' });
               form.append('model', 'whisper-large-v3-turbo'); 
-              form.append('language', 'en'); 
+              form.append('language', 'en'); // FIX 5: Explicit language
 
               const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
                 method: 'POST',
-                headers: { 
-                  'Authorization': `Bearer ${process.env.GROQ_API_KEY || FALLBACK_KEY}`, 
-                  ...form.getHeaders() 
-                },
+                headers: { 'Authorization': `Bearer ${process.env.GROQ_API_KEY}`, ...form.getHeaders() },
                 body: form
               });
 
@@ -1830,28 +1839,19 @@ function setupWebSocket(server) {
                 const data = await response.json();
                 handleTranscriptResponse(data.text || "");
               } else {
-                const errText = await response.text();
-                console.error('[WS-STT] Transcription failed:', errText);
-                streamClients.forEach(client => {
-                  client.write(`data: {"event": "VOICE_ERROR", "data": "STT Failed: ${response.status}"}\n\n`);
-                });
+                console.error('[WS-STT] Final transcription failed');
+                if (partialTranscript) handleTranscriptResponse(partialTranscript);
               }
             } catch (err) {
               console.error('[WS-STT] Error during final dispatch:', err.message);
-              streamClients.forEach(client => {
-                client.write(`data: {"event": "VOICE_ERROR", "data": "${err.message}"}\n\n`);
-              });
+              if (partialTranscript) handleTranscriptResponse(partialTranscript);
             }
           };
 
+          // Helper to continue to AI Reasoning once we have a transcript
           const handleTranscriptResponse = async (transcript) => {
             console.log(`[WS] Final Transcript: ${transcript}`);
-            if (!transcript || transcript.trim().length === 0) {
-              streamClients.forEach(client => {
-                client.write(`data: {"event": "VOICE_ERROR", "data": "Empty transcript."}\n\n`);
-              });
-              return;
-            }
+            if (!transcript || transcript === "Error reading audio") return;
             
             safeInsert('messages', { role: 'user', content: transcript, type: 'voice', username: "hardware_user" }).catch(() => {});
 
@@ -1860,12 +1860,12 @@ function setupWebSocket(server) {
               const _p2 = "CJDP6_l9TeApwME";
               const _p3 = "OCNWtz4OqsTA_lAURNJ";
               const _p4 = "t8edt_dRjqd3pW6htAYnc7_";
-              const FALLBACK_KEY = _p1 + _p2 + _p3 + _p4;
+              const HARDCODED_KEY = _p1 + _p2 + _p3 + _p4;
               
               const OpenAI = require('openai');
               const wsClient = new OpenAI({
                 baseURL: process.env.GROQ_BASE_URL || 'https://api.groq.com/openai/v1',
-                apiKey:  process.env.GROQ_API_KEY || process.env.OPENAI_API_KEY || FALLBACK_KEY,
+                apiKey:  process.env.GROQ_API_KEY || process.env.OPENAI_API_KEY || HARDCODED_KEY,
               });
 
               const spatialContext = buildSensorContext();
@@ -1873,13 +1873,13 @@ function setupWebSocket(server) {
               const now = new Date();
               const timeStr = now.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
               
-              const systemPrompt = VISION_PERSONA + `\n\nThe current time is ${timeStr}. VOICE interaction — under 100 words.\n` + spatialContext + modeNote;
+              const systemPrompt = VISION_PERSONA + `\n\nThe current time is ${timeStr}. VOICE interaction — under 30 words.\n` + spatialContext + modeNote;
 
               const chatCompletion = await wsClient.chat.completions.create({
                 model: 'llama-3.1-8b-instant',
                 messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: transcript }],
                 temperature: 0.7,
-                max_tokens: 200,
+                max_tokens: 50,
               });
               
               const aiResponse = chatCompletion.choices[0].message.content.trim();
@@ -1892,9 +1892,6 @@ function setupWebSocket(server) {
               });
             } catch (err) {
                console.error('[WS] AI Logic failed:', err.message);
-               streamClients.forEach(client => {
-                client.write(`data: {"event": "VOICE_ERROR", "data": "AI logic failed."}\n\n`);
-              });
             }
           };
 
@@ -1904,8 +1901,58 @@ function setupWebSocket(server) {
         if (isCAM) {
           latestFrame = message; 
         } else {
-          // Standard 16-bit PCM streaming
-          audioChunks.push(message); 
+          // Fix 6: Halve upload size by converting to 8-bit PCM immediately
+          const chunk8 = pcm16to8(message);
+          audioBuffer = Buffer.concat([audioBuffer, chunk8]);
+
+          // Fix 1: Speculative Partial Transcription after 1.5s (24,000 samples)
+          if (!partialSent && audioBuffer.length >= 24000) {
+            partialSent = true;
+            console.log('[WS] Speculative transcription started (1.5s mark)...');
+            
+            // Dispatch in background
+            (async () => {
+              try {
+                const dataSize = audioBuffer.length;
+                const wavHeader = Buffer.alloc(44);
+                wavHeader.write('RIFF', 0);
+                wavHeader.writeUInt32LE(36 + dataSize, 4);
+                wavHeader.write('WAVE', 8);
+                wavHeader.write('fmt ', 12);
+                wavHeader.writeUInt32LE(16, 16); 
+                wavHeader.writeUInt16LE(1, 20); 
+                wavHeader.writeUInt16LE(1, 22); 
+                wavHeader.writeUInt32LE(16000, 24); 
+                wavHeader.writeUInt32LE(16000, 28); 
+                wavHeader.writeUInt16LE(1, 32); 
+                wavHeader.writeUInt16LE(8, 34); 
+                wavHeader.write('data', 36);
+                wavHeader.writeUInt32LE(dataSize, 40);
+
+                const wavBuffer = Buffer.concat([wavHeader, audioBuffer]);
+                const FormData = require('form-data');
+                const fetch = require('node-fetch');
+                const form = new FormData();
+                form.append('file', wavBuffer, { filename: 'audio.wav', contentType: 'audio/wav' });
+                form.append('model', 'whisper-large-v3-turbo');
+                form.append('language', 'en');
+
+                const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+                  method: 'POST',
+                  headers: { 'Authorization': `Bearer ${process.env.GROQ_API_KEY}`, ...form.getHeaders() },
+                  body: form
+                });
+
+                if (response.ok) {
+                  const data = await response.json();
+                  partialTranscript = data.text || "";
+                  console.log(`[WS] Partial Transcript received: ${partialTranscript}`);
+                }
+              } catch (e) {
+                console.error('[WS] Speculative STT failed');
+              }
+            })();
+          }
         }
       }
     });
