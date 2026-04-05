@@ -1236,7 +1236,7 @@ app.post('/api/pi/audio-input', emitHardwareStart, express.raw({ type: 'applicat
         filename: 'audio.wav',
         contentType: 'audio/wav',
       });
-      form.append('model', 'whisper-large-v3-turbo'); // OPTIMIZED: Swapped to Turbo as primary
+      form.append('model', 'whisper-large-v3-turbo'); // SPEED & ACCURACY: Swapped back to Turbo as primary
       form.append('language', 'en');
 
       const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
