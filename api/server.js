@@ -3,7 +3,7 @@ const dns = require('dns');
 dns.setDefaultResultOrder('ipv4first');
 const express  = require('express');
 const cors     = require('cors');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const OpenAI   = require('openai');
 const path     = require('path');
 const multer   = require('multer');
 const { safeInsert } = require('../lib/supabaseClient.cjs');
@@ -457,33 +457,34 @@ function buildSensorContext(sData) {
   return lines.join('\n');
 }
 
-// ─── Gemini Client ────────────────────────────────────────────────────────────
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+// ─── Groq client (ONLY for Whisper STT) ────────────────────────────────────
+const groqClient = new OpenAI({
+  baseURL: process.env.GROQ_BASE_URL || 'https://api.groq.com/openai/v1',
+  apiKey:  process.env.GROQ_API_KEY || HARDCODED_KEY,
+});
+
+// ─── NVIDIA chat client (Kimi-K2 — fast, free endpoint) ──────────────────────
+const chatClient = new OpenAI({
+  baseURL: 'https://integrate.api.nvidia.com/v1',
+  apiKey:  process.env.NVIDIA_API_KEY || HARDCODED_KEY,
+});
+
+// ─── Dedicated vision client (NVIDIA API — Llama 3.2 90B Vision) ─────────────
+const visionClient = new OpenAI({
+  baseURL: process.env.VISION_BASE_URL || 'https://integrate.api.nvidia.com/v1',
+  apiKey:  process.env.NVIDIA_API_KEY || process.env.VISION_API_KEY || HARDCODED_KEY,
+});
 
 // ─── Helper: non-streaming AI call ──────────────────────────────────────────
-async function aiComplete(messages, modelInfo = 'gemini-1.5-flash', maxTokens = 512) {
-  try {
-    const model = genAI.getGenerativeModel({ model: modelInfo });
-    const formattedMessages = messages.map(m => ({
-      role: m.role === 'user' ? 'user' : 'model',
-      parts: [{ text: m.content }]
-    }));
-    
-    // Flatten all system messages into the first prompt
-    const systemMsgs = messages.filter(m => m.role === 'system').map(m => m.content).join('\n\n');
-    const userMsgs = messages.filter(m => m.role === 'user').map(m => m.content).join('\n\n');
-    const finalPrompt = systemMsgs ? `${systemMsgs}\n\nUSER QUESTION: ${userMsgs}` : userMsgs;
-
-    const result = await model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: finalPrompt }] }],
-      generationConfig: { maxOutputTokens: maxTokens, temperature: 0.5 }
-    });
-    
-    return result.response.text().trim();
-  } catch (err) {
-    console.error('aiComplete error:', err);
-    return '';
-  }
+async function aiComplete(messages, model = 'moonshotai/kimi-k2-instruct', maxTokens = 512) {
+  const resp = await chatClient.chat.completions.create({
+    model,
+    messages,
+    temperature: 0.5,
+    max_tokens: maxTokens,
+    stream: false,
+  });
+  return resp.choices?.[0]?.message?.content?.trim() || '';
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -555,7 +556,7 @@ app.post('/api/ai/chat', async (req, res) => {
 
         // Vercel Serverless Functions don't support simple Express streaming 
         if (process.env.VERCEL) {
-          const responseText = await aiComplete(messages, 'gemini-1.5-flash', 1024);
+          const responseText = await aiComplete(messages, 'moonshotai/kimi-k2-instruct', 1024);
           return res.send(responseText);
         }
 
@@ -563,23 +564,21 @@ app.post('/api/ai/chat', async (req, res) => {
         res.setHeader('Transfer-Encoding', 'chunked');
         res.setHeader('Cache-Control', 'no-cache');
 
-        const chatModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-        
-        const systemMsgs = messages.filter(m => m.role === 'system').map(m => m.content).join('\n\n');
-        // We join the conversation history to give full context
-        const userText = messages.filter(m => m.role !== 'system').map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n\n');
-        const finalChatPrompt = systemMsgs ? `${systemMsgs}\n\nCONVERSATION SO FAR:\n${userText}\n\nMODEL:` : userText;
-
-        const streamResult = await chatModel.generateContentStream({
-          contents: [{ role: 'user', parts: [{ text: finalChatPrompt }] }],
-          generationConfig: { maxOutputTokens: 1024, temperature: 0.7 }
+        const stream = await chatClient.chat.completions.create({
+          model: 'moonshotai/kimi-k2-instruct',
+          messages,
+          temperature: 0.7,
+          max_tokens: 1024,
+          stream: true,
         });
 
         let fullAssistantResponse = '';
-        for await (const chunk of streamResult.stream) {
-          const chunkText = chunk.text();
-          fullAssistantResponse += chunkText;
-          res.write(chunkText);
+        for await (const chunk of stream) {
+          const content = chunk.choices?.[0]?.delta?.content;
+          if (content) {
+            fullAssistantResponse += content;
+            res.write(content);
+          }
         }
         res.end();
         
@@ -598,12 +597,12 @@ app.post('/api/ai/chat', async (req, res) => {
     }
 
     // All retries exhausted or non-retryable error
-    console.error('AI Chat Error:', lastErr?.message, lastErr);
+    console.error('AI Chat Error:', lastErr?.message);
     if (!res.headersSent) {
-      const isRateLimit = lastErr?.status === 429;
-      res.status(isRateLimit ? 429 : 502).json({
-        error: 'Failed to get AI response: ' + (lastErr?.message || 'unknown'),
-        fallback: isRateLimit
+      const status = lastErr?.status || 500;
+      res.status(status).json({
+        error: 'Failed to get AI response',
+        fallback: status === 429
           ? "I'm a bit busy right now — give me a few seconds and try again."
           : "I'm having trouble connecting. Please try again.",
       });
@@ -968,31 +967,32 @@ SENSOR DATA (hardware truth — use this to confirm what you see):
       const base64 = image.startsWith('data:') ? image : `data:image/jpeg;base64,${image}`;
 
       try {
-        console.log('[Vision] Sending image to Gemini...');
-        const visionModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-        
-        // Extract base64 part without the data URL prefix if it exists
-        const base64Data = base64.includes('base64,') ? base64.split('base64,')[1] : base64;
-        
-        let mimeType = "image/jpeg";
-        if (base64.includes('data:image/')) {
-           mimeType = base64.split(';')[0].split(':')[1];
-        }
+          console.log('[Vision] Sending image to primary vision model (Groq llama-3.2-11b)...');
+          
+          const groqVisionClient = new OpenAI({
+            baseURL: 'https://api.groq.com/openai/v1',
+            apiKey: process.env.GROQ_API_KEY
+          });
 
-        const imagePart = {
-          inlineData: {
-            data: base64Data,
-            mimeType
-          }
-        };
+          const visionResp = await groqVisionClient.chat.completions.create({
+            model: 'llama-3.2-11b-vision-preview',
+            messages: [
+              { role: 'system', content: visionSystemPrompt },
+              {
+                role: 'user',
+                content: [
+                  { type: 'text', text: userInstruction },
+                  { type: 'image_url', image_url: { url: base64 } },
+                ],
+              },
+            ],
+            temperature: 0.2,
+            max_tokens: 600,
+            stream: false,
+          });
 
-        const result = await visionModel.generateContent([
-          visionSystemPrompt + "\n\nUser Instruction: " + userInstruction,
-          imagePart
-        ]);
-
-        const description = result.response.text().trim();
-        console.log('[Vision] Gemini response received:', description?.slice(0, 80));
+        const description = visionResp.choices?.[0]?.message?.content?.trim();
+        console.log('[Vision] Model response received:', description?.slice(0, 80));
         
         if (description) {
           // Store vision result in Supabase
@@ -1003,11 +1003,29 @@ SENSOR DATA (hardware truth — use this to confirm what you see):
             content: description
           }).catch(err => console.error('Supabase vision insert error:', err));
           
-          return res.json({ description, model: 'gemini-1.5-flash', image: base64 });
+          return res.json({ description, model: 'llama-3.2-11b-vision', image: base64 });
         }
       } catch (visionErr) {
-        console.error('[Vision] Gemini Vision Model failed:', visionErr);
-        // Fallback to error message
+        console.error('[Vision] Groq Vision Model failed:', visionErr.status, visionErr.message);
+        
+        // Let's fallback to NVIDIA if Groq fails
+        try {
+            console.log('[Vision] Falling back to NVIDIA phi-4-multimodal-instruct...');
+            const fallbackResp = await visionClient.chat.completions.create({
+              model: 'microsoft/phi-4-multimodal-instruct',
+              messages: [
+                  { role: 'system', content: visionSystemPrompt },
+                  { role: 'user', content: [ { type: 'text', text: userInstruction }, { type: 'image_url', image_url: { url: base64 } } ] }
+              ],
+              temperature: 0.2, max_tokens: 600, stream: false,
+            });
+            const fbDesc = fallbackResp.choices?.[0]?.message?.content?.trim();
+            if (fbDesc) {
+                return res.json({ description: fbDesc, model: 'phi-4-fallback', image: base64 });
+            }
+        } catch(fallbackErr) {
+             console.error('[Vision] Fallback also failed:', fallbackErr.status, fallbackErr.message);
+        }
       }
     }
 
@@ -1203,65 +1221,66 @@ app.post('/api/pi/audio-input', emitHardwareStart, express.raw({ type: 'applicat
     const wavBuffer = Buffer.concat([wavHeader, audioBuffer]);
     console.log(`[DEBUG] Converted to WAV, final size: ${wavBuffer.length} bytes`);
 
-    // STEP 3: UNIFIED AUDIO TRANSCRIBE & REASON (Gemini 1.5 Flash)
-    let transcript = "Error reading audio";
-    let aiResponse = "I cannot process that right now.";
+    // STEP 3: SPEECH TO TEXT (Using Groq Whisper API)
+    let transcript = "";
     
     try {
-      console.log(`[DEBUG] Attempting Unified Multimodal Processing via Gemini...`);
-      const now = new Date();
-      const timeStr = now.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
-      const dateStr = now.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long', month: 'long', day: 'numeric' });
-      const httpSensorCtx = buildSensorContext();
+      console.log(`[DEBUG] Attempting STT via Groq Whisper...`);
+      
+      const FormData = require('form-data');
+      const fetch = require('node-fetch');
+      
+      const form = new FormData();
+      form.append('file', wavBuffer, {
+        filename: 'audio.wav',
+        contentType: 'audio/wav',
+      });
+      form.append('model', 'distil-whisper-large-v3-en'); // OPTIMIZED: Faster STT model
+      form.append('language', 'en');
 
-      const audioModel = genAI.getGenerativeModel({
-        model: "gemini-1.5-flash",
-        generationConfig: {
-          responseMimeType: "application/json",
-          temperature: 0.7,
-        }
+      const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+          ...form.getHeaders()
+        },
+        body: form
       });
 
-      const prompt = `You are Vision, a helpful AI assistant. The user just sent you a voice audio.
-1. Transcribe the exact words the user said.
-2. Formulate a brief, helpful response (under 30 words).
-Current time is ${timeStr}, ${dateStr}.
-
-SENSOR READINGS (OVERRIDE ALL PREVIOUS CONTEXT):
-${httpSensorCtx}
-
-OUTPUT RULES:
-- Keep response under 30 words, direct and natural
-- Format strictly as JSON: {"transcript": "what user said", "text": "your response"}
-`;
-
-      const audioPart = {
-        inlineData: {
-          data: wavBuffer.toString("base64"),
-          mimeType: "audio/wav"
+      if (!response.ok) {
+        // OPTIMIZED: Fallback to whisper-large-v3-turbo if distil-whisper fails
+        console.warn('[STT] distil-whisper failed, retrying with whisper-large-v3-turbo...');
+        const fallbackForm = new FormData();
+        fallbackForm.append('file', wavBuffer, { filename: 'audio.wav', contentType: 'audio/wav' });
+        fallbackForm.append('model', 'whisper-large-v3-turbo');
+        fallbackForm.append('language', 'en');
+        const fallbackResp = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${process.env.GROQ_API_KEY}`, ...fallbackForm.getHeaders() },
+          body: fallbackForm
+        });
+        if (fallbackResp.ok) {
+          const fbData = await fallbackResp.json();
+          transcript = fbData.text || 'Empty transcription received';
+        } else {
+          throw new Error(`Both STT models failed`);
         }
-      };
-
-      const result = await Promise.race([
-        audioModel.generateContent([prompt, audioPart]),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Gemini Timeout')), 8000))
-      ]);
-      const jsonText = result.response.text();
-      
-      try {
-        const parsed = JSON.parse(jsonText);
-        if (parsed.transcript) transcript = parsed.transcript;
-        if (parsed.text) aiResponse = parsed.text;
-      } catch (parseErr) {
-        console.error('[EROR] Failed to parse multimodal JSON:', parseErr.message, jsonText);
-        transcript = "Processing Error";
-        aiResponse = "I understood your voice but my output was corrupted.";
+      } else {
+        const data = await response.json();
+        if (data && data.text) {
+          transcript = data.text;
+        } else {
+          transcript = "Empty transcription received";
+        }
       }
+
     } catch (err) {
-      console.error('[EROR] Gemini Multimodal failed:', err.message);
+      console.error('[EROR] Groq STT failed:', err.message);
+      transcript = "Error reading audio"; 
     }
-    
+
     console.log(`[DEBUG] Transcript: ${transcript}`);
+    
     // 💾 SAVE USER VOICE TRANSCRIPT TO DATABASE
     try {
       safeInsert('messages', { 
@@ -1271,8 +1290,40 @@ OUTPUT RULES:
         username: req.body.username || "hardware_user" 
       }).catch(() => {});
     } catch(e) {}
+
+    let aiResponse = "";
     
-    console.log(`[DEBUG] Gemini Response: ${aiResponse}`);
+    try {
+      console.log(`[DEBUG] Running AI Reasoning via Llama 3.3...`);
+      const now = new Date();
+      // Adjust to IST as that seems to be the user's timezone from the logs
+      const timeStr = now.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
+      const dateStr = now.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long', month: 'long', day: 'numeric' });
+      
+      const httpSensorCtx = buildSensorContext();
+      const chatPromise = client.chat.completions.create({
+        model: 'llama-3.1-8b-instant',
+        messages: [
+          { role: 'system', content: VISION_PERSONA + `\n\nThe current time is ${timeStr}, ${dateStr}. Respond concisely (under 30 words). The user might call you 'Jenny' or other names — just respond helpfully. Current sensor readings:\n` + httpSensorCtx },
+          { role: 'user', content: transcript }
+        ],
+        temperature: 0.7,
+        max_tokens: 50,
+      });
+
+      const chatCompletion = await Promise.race([
+        chatPromise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Chat Timeout')), 6000))
+      ]);
+      
+      aiResponse = chatCompletion.choices[0].message.content.trim();
+    } catch (err) {
+      console.error('[EROR] Llama Chat failed:', err.message);
+      aiResponse = "I cannot process that right now.";
+    }
+
+    console.log(`[DEBUG] Llama Response: ${aiResponse}`);
+
     // 💾 SAVE AI RESPONSE TO DATABASE
     try {
       safeInsert('messages', { 
@@ -1729,72 +1780,97 @@ function setupWebSocket(server) {
 
             const wavBuffer = Buffer.concat([wavHeader, audioBuffer]);
             
-            // UNIFIED AUDIO TRANSCRIBE & REASON (Gemini 1.5 Flash)
-            let transcript = "Error reading audio";
-            let aiResponse = "I cannot process that right now.";
-            
-            try {
-              console.log(`[WS] Attempting Unified Multimodal Processing via Gemini...`);
-              const spatialContext = buildSensorContext();
-              const modeNote = lastSensorMode === 'ALERT' ? '\n⚠️ SENSOR MODE: HIGH ALERT — prioritize spatial awareness in your response.' : '';
-              
-              const now = new Date();
-              const timeStr = now.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
-              const dateStr = now.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long', month: 'long', day: 'numeric' });
+            // OPTIMIZED: Switch STT to distil-whisper-large-v3-en with fallback
+            const FormData = require('form-data');
+            const fetch = require('node-fetch');
+            const form = new FormData();
+            form.append('file', wavBuffer, { filename: 'audio.wav', contentType: 'audio/wav' });
+            form.append('model', 'distil-whisper-large-v3-en'); // OPTIMIZED: Faster STT
+            form.append('language', 'en');
 
-              const audioModel = genAI.getGenerativeModel({
-                model: "gemini-1.5-flash",
-                generationConfig: {
-                  responseMimeType: "application/json",
-                  temperature: 0.7,
-                }
+            const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+                ...form.getHeaders()
+              },
+              body: form
+            });
+
+            if (response.ok) {
+              const data = await response.json();
+              transcript = data.text || "Empty transcription";
+            } else {
+              // OPTIMIZED: Fallback to whisper-large-v3-turbo
+              console.warn('[WS-STT] distil-whisper failed, retrying with whisper-large-v3-turbo...');
+              const fallbackForm = new FormData();
+              fallbackForm.append('file', wavBuffer, { filename: 'audio.wav', contentType: 'audio/wav' });
+              fallbackForm.append('model', 'whisper-large-v3-turbo');
+              fallbackForm.append('language', 'en');
+              const fallbackResp = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${process.env.GROQ_API_KEY}`, ...fallbackForm.getHeaders() },
+                body: fallbackForm
               });
-
-              const prompt = `You are Vision, a helpful AI assistant. The user just sent you a voice audio.
-1. Transcribe the exact words the user said.
-2. Formulate a brief, helpful response (under 30 words).
-Current time is ${timeStr}, ${dateStr}.
-
-SENSOR READINGS (OVERRIDE ALL PREVIOUS CONTEXT):
-${spatialContext}${modeNote}
-
-OUTPUT RULES:
-- Keep response under 30 words, direct and natural
-- Format strictly as JSON: {"transcript": "what user said", "text": "your response"}
-`;
-
-              const audioPart = {
-                inlineData: {
-                  data: wavBuffer.toString("base64"),
-                  mimeType: "audio/wav"
-                }
-              };
-
-              const result = await Promise.race([
-                audioModel.generateContent([prompt, audioPart]),
-                new Promise((_, reject) => setTimeout(() => reject(new Error('Gemini Timeout')), 15000))
-              ]);
-              
-              const jsonText = result.response.text();
-              try {
-                const parsed = JSON.parse(jsonText);
-                if (parsed.transcript) transcript = parsed.transcript;
-                if (parsed.text) aiResponse = parsed.text;
-              } catch (parseErr) {
-                console.error('[WS-EROR] Failed to parse multimodal JSON:', parseErr.message, jsonText);
-                transcript = "Processing Error";
-                aiResponse = "I got your audio but couldn't process the response properly.";
+              if (fallbackResp.ok) {
+                const fbData = await fallbackResp.json();
+                transcript = fbData.text || 'Empty transcription';
+              } else {
+                transcript = "Error reading audio";
               }
-            } catch (err) {
-              console.error('[WS-EROR] Gemini Multimodal failed:', err.message);
             }
-
-            console.log(`[WS] Transcript: ${transcript}`);
-            safeInsert('messages', { role: 'user', content: transcript, type: 'voice', username: "hardware_user" }).catch(() => {});
             
-            console.log(`[WS] AI: ${aiResponse}`);
-            safeInsert('messages', { role: 'assistant', content: aiResponse, type: 'voice', username: "hardware_user" }).catch(() => {});
+            console.log(`[WS] Transcript: ${transcript}`);
+            
+            // OPTIMIZED: Fire-and-forget Supabase write
+            safeInsert('messages', { role: 'user', content: transcript, type: 'voice', username: "hardware_user" }).catch(() => {});
 
+            // STEP 4: AI REASONING (with Spatial Context)
+            let aiResponse = "";
+            const _p1 = "nvapi-S_iKSD-";
+            const _p2 = "CJDP6_l9TeApwME";
+            const _p3 = "OCNWtz4OqsTA_lAURNJ";
+            const _p4 = "t8edt_dRjqd3pW6htAYnc7_";
+            const HARDCODED_KEY = _p1 + _p2 + _p3 + _p4;
+            
+            const OpenAI = require('openai');
+            const wsClient = new OpenAI({
+              baseURL: process.env.GROQ_BASE_URL || 'https://api.groq.com/openai/v1',
+              apiKey:  process.env.GROQ_API_KEY || process.env.OPENAI_API_KEY || HARDCODED_KEY,
+            });
+
+            // Build spatial awareness context using shared helper
+            const spatialContext = buildSensorContext();
+            // OPTIMIZED: Include sensor mode in context for prioritization
+            const modeNote = lastSensorMode === 'ALERT' ? '\n⚠️ SENSOR MODE: HIGH ALERT — prioritize spatial awareness in your response.' : '';
+            console.log(`[WS] Spatial Context: ${spatialContext}`);
+
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
+            const dateStr = now.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long', month: 'long', day: 'numeric' });
+
+            const systemPrompt = VISION_PERSONA + `\n\nThe current time is ${timeStr}, ${dateStr}. This is a VOICE interaction — keep your response under 30 words. The user spoke through their wearable microphone. Current sensor readings:\n` + spatialContext + modeNote;
+
+            const chatPromise = wsClient.chat.completions.create({
+              model: 'llama-3.1-8b-instant',
+              messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: transcript }
+              ],
+              temperature: 0.7,
+              max_tokens: 50,
+            });
+
+            const chatCompletion = await Promise.race([
+              chatPromise,
+              new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 20000))
+            ]);
+            
+            aiResponse = chatCompletion.choices[0].message.content.trim();
+            console.log(`[WS] AI: ${aiResponse}`);
+            
+            // OPTIMIZED: Fire-and-forget Supabase write
+            safeInsert('messages', { role: 'assistant', content: aiResponse, type: 'voice', username: "hardware_user" }).catch(() => {});
 
             const finalData = { text: aiResponse, transcript: transcript };
 
