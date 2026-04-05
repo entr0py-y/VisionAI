@@ -1763,33 +1763,28 @@ function setupWebSocket(server) {
             client.write(`data: {"event": "HARDWARE_BTN_TOUCHED"}\n\n`);
           });
         } else if (text === "STOP") {
-          // Fix: Assemble the full buffer ONCE at the end
           const currentAudio = Buffer.concat(audioChunks);
-          audioChunks = []; // Clear for next session
-          audioLength = 0;
+          audioChunks = []; 
           
-          console.log(`[WS] ESP32 triggered STOP. Immediate STT dispatch starting...`);
+          console.log(`[WS] ESP32 triggered STOP. Dispatching STT...`);
           
-          // Tell the UI to turn off the red "Recording" UI immediately
           streamClients.forEach(client => {
             client.write(`data: {"event": "HARDWARE_BTN_RELEASED"}\n\n`);
           });
 
-          if (currentAudio.length === 0 && !partialTranscript) {
+          if (currentAudio.length === 0) {
             streamClients.forEach(client => {
               client.write(`data: {"event": "AUDIO_RESULT", "data": {"text": "I didn't capture any audio. Please speak clearly.", "transcript": ""}}\n\n`);
             });
             return;
           }
 
-          // We'll skip complex silence trimming for 16-bit for now to prioritize stability
           const audioToProcess = currentAudio;
           
-          // FIX 2/3: Dispatch Groq request immediately
           const processFinalSTT = async () => {
             try {
-              // Assemble WAV header for the 8-bit stream
-              const dataSize = trimmed.length;
+              // Standard 16-bit 16kHz WAV
+              const dataSize = audioToProcess.length;
               const wavHeader = Buffer.alloc(44);
               wavHeader.write('RIFF', 0);
               wavHeader.writeUInt32LE(36 + dataSize, 4);
@@ -1798,21 +1793,21 @@ function setupWebSocket(server) {
               wavHeader.writeUInt32LE(16, 16); 
               wavHeader.writeUInt16LE(1, 20); // PCM
               wavHeader.writeUInt16LE(1, 22); // Mono
-              wavHeader.writeUInt32LE(16000, 24); // 16kHz
-              wavHeader.writeUInt32LE(16000, 28); // 8-bit means 1 byte per sample, rate 16000
-              wavHeader.writeUInt16LE(1, 32); // BlockAlign (1 byte)
-              wavHeader.writeUInt16LE(8, 34); // Fix 6: 8-bit!
+              wavHeader.writeUInt32LE(16000, 24); 
+              wavHeader.writeUInt32LE(32000, 28); // 16000 * 2 bytes/sample
+              wavHeader.writeUInt16LE(2, 32); // BlockAlign (2 bytes)
+              wavHeader.writeUInt16LE(16, 34); // 16-bit
               wavHeader.write('data', 36);
               wavHeader.writeUInt32LE(dataSize, 40);
 
-              const wavBuffer = Buffer.concat([wavHeader, trimmed]);
+              const wavBuffer = Buffer.concat([wavHeader, audioToProcess]);
               
               const FormData = require('form-data');
               const fetch = require('node-fetch');
               const form = new FormData();
               form.append('file', wavBuffer, { filename: 'audio.wav', contentType: 'audio/wav' });
               form.append('model', 'whisper-large-v3-turbo'); 
-              form.append('language', 'en'); // FIX 5: Explicit language
+              form.append('language', 'en'); 
 
               const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
                 method: 'POST',
