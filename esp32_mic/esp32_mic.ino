@@ -12,7 +12,6 @@ const char* serverIp = "visionai-hig1.onrender.com";
 const int serverPort = 443;
 
 // ===========================
-unsigned long lastHeapLog = 0;
 // I2S MIC PINS (INMP441)
 // ===========================
 #define I2S_WS 25
@@ -32,12 +31,16 @@ unsigned long lastHeapLog = 0;
 #define PIR_PIN 34        // HC-SR501 PIR Motion Sensor (Input-Only pin)
 #define ULTRASONIC_TRIG 14 // HC-SR04 Trigger
 #define ULTRASONIC_ECHO 35 // HC-SR04 Echo (Input-Only pin)
-#define IR_PIN 32          // IR Obstacle Avoidance Sensor (Digital Out)
 
 WebSocketsClient webSocket;
 bool isRecording = false;
 bool lastTouchState = LOW;
 unsigned long lastSensorSend = 0;
+unsigned long lastHeapLog = 0; // Fix 6: Period log timer
+
+// Fix 1: Heap allocation for audio buffers
+uint8_t* pcm32Buffer = nullptr; 
+int16_t* pcm16Buffer = nullptr;
 
 // OPTIMIZED: Adaptive telemetry — fast when sensors detect proximity, slow when idle
 const unsigned long ALERT_INTERVAL = 200;   // 200ms in HIGH ALERT mode
@@ -48,6 +51,7 @@ unsigned long currentSensorInterval = IDLE_INTERVAL;
 // ULTRASONIC DISTANCE READER
 // Median-of-5 + EMA smoothing
 // ===========================
+
 float emaDistance = -1;              // Exponential Moving Average state
 const float EMA_ALPHA = 0.3;        // Smoothing factor (0.3 = responsive yet stable)
 
@@ -58,8 +62,8 @@ long singlePulseCM() {
   delayMicroseconds(10);
   digitalWrite(ULTRASONIC_TRIG, LOW);
 
-  // 35ms timeout (~6m). A longer timeout (like 100ms) blocks the ESP32 CPU and crashes the WiFi stack.
-  unsigned long duration = pulseIn(ULTRASONIC_ECHO, HIGH, 35000); 
+  // Non-blocking fix: 12ms timeout (~2m). Previous 35ms was too long.
+  unsigned long duration = pulseIn(ULTRASONIC_ECHO, HIGH, 12000); 
   if (duration == 0) return -1; // No echo
   
   long dist = (long)(duration * 0.034 / 2); // cm
@@ -84,22 +88,16 @@ void sortArray(long arr[], int n) {
   }
 }
 
-// Takes 1 sample per loop cycle, computes median of the trailing window.
-// This prevents spamming the HC-SR04 (which requires 60ms between pings)
 long readDistanceCM() {
   long d = singlePulseCM();
   
-  // Debug to Serial Monitor so we can see raw pulses instantly
-  Serial.printf("[SENSOR RAW] raw=%ldcm\n", d);
-
-  // Update circular buffer with raw reading
+  // Update circular buffer
   distBuffer[distBufferIndex] = d;
   distBufferIndex = (distBufferIndex + 1) % SENSOR_WINDOW_SIZE;
 
-  // Extract valid readings for median calculation
+  // Extract valid readings
   long validSamples[SENSOR_WINDOW_SIZE];
   int validCount = 0;
-  
   for (int i = 0; i < SENSOR_WINDOW_SIZE; i++) {
     if (distBuffer[i] > 0 && distBuffer[i] <= 400) {
       validSamples[validCount++] = distBuffer[i];
@@ -107,22 +105,20 @@ long readDistanceCM() {
   }
 
   if (validCount == 0) {
-    emaDistance = -1; // Reset EMA if no valid readings in the entire window
-    return -1;       // Nothing in range
+    emaDistance = -1;
+    return -1;
   }
 
-  // Sort valid samples and pick the median
   sortArray(validSamples, validCount);
   long median = validSamples[validCount / 2];
 
-  // Apply Exponential Moving Average for inter-cycle smoothing
   if (emaDistance < 0) {
-    emaDistance = (float)median; // First valid reading — seed the EMA
+    emaDistance = (float)median;
   } else {
     emaDistance = EMA_ALPHA * median + (1.0 - EMA_ALPHA) * emaDistance;
   }
 
-  return (long)(emaDistance + 0.5); // Round to nearest cm
+  return (long)(emaDistance + 0.5);
 }
 
 void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
@@ -143,10 +139,6 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
       break;
   }
 }
-
-// Initialize buffers dynamically to prevent stack-based leak fragmentation
-uint8_t* chunk32 = NULL;
-int16_t* chunk16 = NULL;
 
 void setup() {
   Serial.begin(115200);
@@ -200,11 +192,10 @@ void setup() {
 
   // 3. CONFIGURE SENSOR PINS
   pinMode(TOUCH_PIN, INPUT_PULLDOWN);
-  pinMode(PIR_PIN, INPUT);          // Input-only pin, no pull needed
-  pinMode(ULTRASONIC_TRIG, OUTPUT); // We fire the pulse
-  pinMode(ULTRASONIC_ECHO, INPUT);  // Input-only pin, reads the bounce
-  pinMode(IR_PIN, INPUT);           // Digital obstacle detection
-  Serial.println("Spatial sensors initialized.");
+  pinMode(PIR_PIN, INPUT);          
+  pinMode(ULTRASONIC_TRIG, OUTPUT);
+  pinMode(ULTRASONIC_ECHO, INPUT); 
+  Serial.println("Sensors initialized.");
 
   // 4. WS SERVER SETUP
   webSocket.beginSSL(serverIp, serverPort, "/api/pi/ws", "", "");
@@ -214,34 +205,35 @@ void setup() {
 
 void loop() {
   webSocket.loop();
+
+  // Fix 6: Periodic heap log over Serial (30s)
+  if (millis() - lastHeapLog > 30000) {
+    lastHeapLog = millis();
+    Serial.printf("[MEM] Free heap: %u bytes\n", ESP.getFreeHeap());
+  }
   
   if (WiFi.status() != WL_CONNECTED) {
     return;
   }
 
-  // ─── PERIODIC HEAP LOGGING ───
-  if (millis() - lastHeapLog >= 30000) {
-    lastHeapLog = millis();
-    Serial.printf("Free heap: %d bytes\n", ESP.getFreeHeap());
-  }
 
   // ─── SENSOR TELEMETRY — OPTIMIZED: Adaptive frequency ───
   if (!isRecording && (millis() - lastSensorSend >= currentSensorInterval)) {
     lastSensorSend = millis();
     
-    int pirState = digitalRead(PIR_PIN);       // 1 = motion detected
-    long distanceCM = readDistanceCM();         // -1 = no object in range
-    int irObstacle = !digitalRead(IR_PIN);      // IR sensor is active LOW, so we invert: 1 = obstacle close
+    int pirState = digitalRead(PIR_PIN);       
+    long distanceCM = readDistanceCM();         
     
     if (webSocket.isConnected()) {
-      // OPTIMIZED: Adaptive polling — fast when danger detected, slow when clear
-      bool isAlert = (distanceCM > 0 && distanceCM < 100) || pirState == 1 || irObstacle == 1;
+      // ALERT mode when motion detected or object in range
+      bool isAlert = (pirState == 1) || (distanceCM > 0 && distanceCM < 100);
       currentSensorInterval = isAlert ? ALERT_INTERVAL : IDLE_INTERVAL;
       const char* mode = isAlert ? "ALERT" : "IDLE";
       
-      // OPTIMIZED: Compact key names (u, p, i) to reduce payload size
-      char sensorJSON[128];
-      snprintf(sensorJSON, sizeof(sensorJSON), "{\"type\":\"sensors\",\"u\":%ld,\"p\":%d,\"i\":%d,\"mode\":\"%s\"}", distanceCM, pirState, irObstacle, mode);
+      // Fix 5: Replace String class with fixed-size char array
+      char sensorJSON[150];
+      snprintf(sensorJSON, sizeof(sensorJSON), "{\"type\":\"sensors\",\"p\":%d,\"u\":%ld,\"mode\":\"%s\"}", 
+               pirState, distanceCM, mode);
       
       webSocket.sendTXT(sensorJSON);
     }
@@ -255,11 +247,11 @@ void loop() {
       Serial.println("\n[PTT] Interruption started! Beaming zero-latency signal...");
       digitalWrite(LED_BUILTIN, HIGH);
       
-      // FIX 1: Allocate audio buffer cleanly at start of recording
-      if (chunk32 == NULL) chunk32 = (uint8_t*)malloc(2048);
-      if (chunk16 == NULL) chunk16 = (int16_t*)malloc(512 * sizeof(int16_t));
-
       webSocket.sendTXT("START");
+      
+      // Fix 1: Explicitly allocate audio buffers at START
+      pcm32Buffer = (uint8_t*)malloc(2048);
+      pcm16Buffer = (int16_t*)malloc(1024);
       
       isRecording = true;
       i2s_zero_dma_buffer(I2S_PORT);
@@ -273,29 +265,25 @@ void loop() {
     digitalWrite(LED_BUILTIN, LOW);
     
     webSocket.sendTXT("STOP");
-    isRecording = false;
-
-    // FIX 1: Free explicitly after recording transmission completes
-    if (chunk32 != NULL) {
-      free(chunk32);
-      chunk32 = NULL;
-    }
-    if (chunk16 != NULL) {
-      free(chunk16);
-      chunk16 = NULL;
-    }
     
+    // Fix 1: Explicitly free audio buffers after STOP
+    if (pcm32Buffer) { free(pcm32Buffer); pcm32Buffer = nullptr; }
+    if (pcm16Buffer) { free(pcm16Buffer); pcm16Buffer = nullptr; }
+    
+    isRecording = false;
+    
+    // Fix 3 & 4: Heap Monitoring & Auto-Restart Safeguard
     uint32_t freeHeap = ESP.getFreeHeap();
+    Serial.printf("[MEM] Final heap after session: %u bytes\n", freeHeap);
+    
     if (freeHeap < 20000) {
-      Serial.println("[CRITICAL] Heap < 20KB. Self-restarting to fix fragmentation.");
+      Serial.println("[MEM] Critical Heap Low! Self-healing restart...");
       webSocket.sendTXT("{\"type\":\"ESP32_RESTARTING\"}");
-      delay(100);
-      webSocket.disconnect();
-      delay(100);
+      delay(500);
       ESP.restart();
     } else if (freeHeap < 50000) {
-      Serial.println("[WARNING] Heap < 50KB. Resetting WS connection to clear buffers.");
-      webSocket.disconnect();
+      Serial.println("[MEM] Warning: Heap low, clearing internal WebSocket buffers...");
+      webSocket.disconnect(); // This forces a cleanup of internal send buffers
     }
     
     delay(50);
@@ -304,13 +292,13 @@ void loop() {
   lastTouchState = currentTouchState;
 
   // ─── REAL-TIME AUDIO STREAMING ───
-  if (isRecording && chunk32 != NULL && chunk16 != NULL) {
+  if (isRecording && pcm32Buffer && pcm16Buffer) {
     size_t bytesRead = 0;
-    i2s_read(I2S_PORT, chunk32, 2048, &bytesRead, portMAX_DELAY);
+    i2s_read(I2S_PORT, pcm32Buffer, 2048, &bytesRead, portMAX_DELAY);
 
     if (bytesRead > 0) {
       int samplesRead = bytesRead / 4; 
-      int32_t* ptr32 = (int32_t*)chunk32;
+      int32_t* ptr32 = (int32_t*)pcm32Buffer;
       
       // Noise gate threshold: values below this are silenced
       // Increase this if background noise is still too high
@@ -331,11 +319,11 @@ void loop() {
             sample16 = 0;
         }
 
-        chunk16[i] = sample16;
+        pcm16Buffer[i] = sample16;
       }
       
       int bytesToSend = samplesRead * 2;
-      webSocket.sendBIN((uint8_t*)chunk16, bytesToSend);
+      webSocket.sendBIN((uint8_t*)pcm16Buffer, bytesToSend);
     }
   }
 }
