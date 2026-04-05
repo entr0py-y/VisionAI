@@ -1678,18 +1678,6 @@ const { WebSocketServer } = require('ws');
 
 /** 
  * Convert 16-bit PCM (signed) to 8-bit PCM (unsigned).
- * Halves byte size to accelerate upload to Groq. 
- */
-function pcm16to8(pcm16) {
-  const pcm8 = Buffer.alloc(pcm16.length / 2);
-  for (let i = 0; i < pcm8.length; i++) {
-    const sample = pcm16.readInt16LE(i * 2);
-    // Convert -32768..32767 to 0..255 (128 is zero)
-    pcm8[i] = ((sample / 256) + 128) & 0xff;
-  }
-  return pcm8;
-}
-
 /**
  * Trim leading/trailing silence from 8-bit PCM.
  * Threshold of 5 means samples in [123, 133] are considered silent. 
@@ -1711,11 +1699,8 @@ function setupWebSocket(server) {
 
   wss.on('connection', (ws, req) => {
     console.log('[WS] New ESP32 Client Connected', req.socket.remoteAddress);
-    let audioChunks = []; // Fix: Store chunks in array to prevent O(N^2) Buffer.concat overhead
-    let audioLength = 0;   // Track total byte length for speculative trigger
+    let audioChunks = []; // Fast array-based chunking
     let isCAM = false; 
-    let partialSent = false;
-    let partialTranscript = "";
     
     ws.on('message', async (message, isBinary) => {
 
@@ -1773,10 +1758,7 @@ function setupWebSocket(server) {
 
         if (text === "START") {
           console.log('[WS] ESP32 triggered START recording');
-          audioChunks = []; // Fix: Clear chunk array
-          audioLength = 0;   // Reset length
-          partialSent = false;
-          partialTranscript = "";
+          audioChunks = []; 
           streamClients.forEach(client => {
             client.write(`data: {"event": "HARDWARE_BTN_TOUCHED"}\n\n`);
           });
@@ -1800,8 +1782,8 @@ function setupWebSocket(server) {
             return;
           }
 
-          // FIX 4: Final silence trim from end of recording
-          const trimmed = trim8BitSilence(currentAudio);
+          // We'll skip complex silence trimming for 16-bit for now to prioritize stability
+          const audioToProcess = currentAudio;
           
           // FIX 2/3: Dispatch Groq request immediately
           const processFinalSTT = async () => {
@@ -1843,11 +1825,9 @@ function setupWebSocket(server) {
                 handleTranscriptResponse(data.text || "");
               } else {
                 console.error('[WS-STT] Final transcription failed');
-                if (partialTranscript) handleTranscriptResponse(partialTranscript);
               }
             } catch (err) {
               console.error('[WS-STT] Error during final dispatch:', err.message);
-              if (partialTranscript) handleTranscriptResponse(partialTranscript);
             }
           };
 
@@ -1904,62 +1884,8 @@ function setupWebSocket(server) {
         if (isCAM) {
           latestFrame = message; 
         } else {
-          // Fix 6: Halve upload size by converting to 8-bit PCM immediately
-          const chunk8 = pcm16to8(message);
-          audioChunks.push(chunk8); // Fix: Fast push to array (No re-allocation/copy)
-          audioLength += chunk8.length;
-          
-          // Fix 1: Speculative Partial Transcription after 1.5s (24,000 samples)
-          if (!partialSent && audioLength >= 24000) {
-            partialSent = true;
-            console.log('[WS] Speculative transcription started (1.5s mark)...');
-            
-            // Assemble partial buffer for the background request
-            const snapshotAudio = Buffer.concat(audioChunks);
-            
-            // Dispatch in background
-            (async () => {
-              try {
-                const dataSize = snapshotAudio.length;
-                const wavHeader = Buffer.alloc(44);
-                wavHeader.write('RIFF', 0);
-                wavHeader.writeUInt32LE(36 + dataSize, 4);
-                wavHeader.write('WAVE', 8);
-                wavHeader.write('fmt ', 12);
-                wavHeader.writeUInt32LE(16, 16); 
-                wavHeader.writeUInt16LE(1, 20); 
-                wavHeader.writeUInt16LE(1, 22); 
-                wavHeader.writeUInt32LE(16000, 24); 
-                wavHeader.writeUInt32LE(16000, 28); 
-                wavHeader.writeUInt16LE(1, 32); 
-                wavHeader.writeUInt16LE(8, 34); 
-                wavHeader.write('data', 36);
-                wavHeader.writeUInt32LE(dataSize, 40);
-
-                const wavBuffer = Buffer.concat([wavHeader, snapshotAudio]);
-                const FormData = require('form-data');
-                const fetch = require('node-fetch');
-                const form = new FormData();
-                form.append('file', wavBuffer, { filename: 'audio.wav', contentType: 'audio/wav' });
-                form.append('model', 'whisper-large-v3-turbo');
-                form.append('language', 'en');
-
-                const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
-                  method: 'POST',
-                  headers: { 'Authorization': `Bearer ${process.env.GROQ_API_KEY}`, ...form.getHeaders() },
-                  body: form
-                });
-
-                if (response.ok) {
-                  const data = await response.json();
-                  partialTranscript = data.text || "";
-                  console.log(`[WS] Partial Transcript received: ${partialTranscript}`);
-                }
-              } catch (e) {
-                console.error('[WS] Speculative STT failed');
-              }
-            })();
-          }
+          // Standard 16-bit PCM streaming
+          audioChunks.push(message); 
         }
       }
     });
