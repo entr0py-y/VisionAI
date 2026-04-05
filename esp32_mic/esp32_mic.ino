@@ -244,27 +244,31 @@ void loop() {
   
   if (currentTouchState == HIGH && lastTouchState == LOW) {
     if (webSocket.isConnected()) {
-      Serial.println("\n[PTT] Interruption started! Beaming zero-latency signal...");
+      Serial.println("\n[PTT] Interruption started!");
       digitalWrite(LED_BUILTIN, HIGH);
       
       webSocket.sendTXT("START");
       
-      // Fix 1: Explicitly allocate audio buffers at START
       pcm32Buffer = (uint8_t*)malloc(2048);
       pcm16Buffer = (int16_t*)malloc(1024);
       
       isRecording = true;
       i2s_zero_dma_buffer(I2S_PORT);
+      Serial.println("[WS] START signal sent.");
     } else {
-      Serial.println("[ERR] WS not connected, cannot stream.");
+      Serial.println("[ERR] Cannot START: WebSocket not connected!");
     }
-    delay(50);
+    delay(100); // Stabilization
   } 
   else if (currentTouchState == LOW && lastTouchState == HIGH && isRecording) {
-    Serial.println("\n[PTT] Released! Finalizing buffer.");
-    digitalWrite(LED_BUILTIN, LOW);
+    if (webSocket.isConnected()) {
+      Serial.println("\n[PTT] Released! Sending STOP.");
+      webSocket.sendTXT("STOP");
+    } else {
+      Serial.println("\n[ERR] Released but WebSocket lost! Transcription will fail.");
+    }
     
-    webSocket.sendTXT("STOP");
+    digitalWrite(LED_BUILTIN, LOW);
     
     // Fix 1: Explicitly free audio buffers after STOP
     if (pcm32Buffer) { free(pcm32Buffer); pcm32Buffer = nullptr; }
@@ -278,15 +282,12 @@ void loop() {
     
     if (freeHeap < 20000) {
       Serial.println("[MEM] Critical Heap Low! Self-healing restart...");
-      webSocket.sendTXT("{\"type\":\"ESP32_RESTARTING\"}");
+      if (webSocket.isConnected()) webSocket.sendTXT("{\"type\":\"ESP32_RESTARTING\"}");
       delay(500);
       ESP.restart();
-    } else if (freeHeap < 50000) {
-      Serial.println("[MEM] Warning: Heap low, clearing internal WebSocket buffers...");
-      webSocket.disconnect(); // This forces a cleanup of internal send buffers
-    }
+    } 
     
-    delay(50);
+    delay(100); // Stabilization
   }
   
   lastTouchState = currentTouchState;
