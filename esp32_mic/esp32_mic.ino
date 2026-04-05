@@ -12,6 +12,7 @@ const char* serverIp = "visionai-hig1.onrender.com";
 const int serverPort = 443;
 
 // ===========================
+unsigned long lastHeapLog = 0;
 // I2S MIC PINS (INMP441)
 // ===========================
 #define I2S_WS 25
@@ -214,6 +215,12 @@ void loop() {
     return;
   }
 
+  // ─── PERIODIC HEAP LOGGING ───
+  if (millis() - lastHeapLog >= 30000) {
+    lastHeapLog = millis();
+    Serial.printf("Free heap: %d bytes\n", ESP.getFreeHeap());
+  }
+
   // ─── SENSOR TELEMETRY — OPTIMIZED: Adaptive frequency ───
   if (!isRecording && (millis() - lastSensorSend >= currentSensorInterval)) {
     lastSensorSend = millis();
@@ -229,10 +236,8 @@ void loop() {
       const char* mode = isAlert ? "ALERT" : "IDLE";
       
       // OPTIMIZED: Compact key names (u, p, i) to reduce payload size
-      String sensorJSON = "{\"type\":\"sensors\",\"u\":" + String(distanceCM) 
-                        + ",\"p\":" + String(pirState) 
-                        + ",\"i\":" + String(irObstacle) 
-                        + ",\"mode\":\"" + String(mode) + "\"}";
+      char sensorJSON[128];
+      snprintf(sensorJSON, sizeof(sensorJSON), "{\"type\":\"sensors\",\"u\":%ld,\"p\":%d,\"i\":%d,\"mode\":\"%s\"}", distanceCM, pirState, irObstacle, mode);
       
       webSocket.sendTXT(sensorJSON);
     }
@@ -261,6 +266,19 @@ void loop() {
     
     webSocket.sendTXT("STOP");
     isRecording = false;
+    
+    uint32_t freeHeap = ESP.getFreeHeap();
+    if (freeHeap < 20000) {
+      Serial.println("[CRITICAL] Heap < 20KB. Self-restarting to fix fragmentation.");
+      webSocket.sendTXT("{\"type\":\"ESP32_RESTARTING\"}");
+      delay(100);
+      webSocket.disconnect();
+      delay(100);
+      ESP.restart();
+    } else if (freeHeap < 50000) {
+      Serial.println("[WARNING] Heap < 50KB. Resetting WS connection to clear buffers.");
+      webSocket.disconnect();
+    }
     
     delay(50);
   }
