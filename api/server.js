@@ -1711,7 +1711,8 @@ function setupWebSocket(server) {
 
   wss.on('connection', (ws, req) => {
     console.log('[WS] New ESP32 Client Connected', req.socket.remoteAddress);
-    let audioBuffer = Buffer.alloc(0); // Fix 2: Pre-assembled buffer
+    let audioChunks = []; // Fix: Store chunks in array to prevent O(N^2) Buffer.concat overhead
+    let audioLength = 0;   // Track total byte length for speculative trigger
     let isCAM = false; 
     let partialSent = false;
     let partialTranscript = "";
@@ -1772,16 +1773,18 @@ function setupWebSocket(server) {
 
         if (text === "START") {
           console.log('[WS] ESP32 triggered START recording');
-          audioBuffer = Buffer.alloc(0); // Fix 2: Start fresh
+          audioChunks = []; // Fix: Clear chunk array
+          audioLength = 0;   // Reset length
           partialSent = false;
           partialTranscript = "";
           streamClients.forEach(client => {
             client.write(`data: {"event": "HARDWARE_BTN_TOUCHED"}\n\n`);
           });
         } else if (text === "STOP") {
-          // Fix 3: Trigger transcription immediately on the same tick
-          const currentAudio = audioBuffer;
-          audioBuffer = Buffer.alloc(0); 
+          // Fix: Assemble the full buffer ONCE at the end
+          const currentAudio = Buffer.concat(audioChunks);
+          audioChunks = []; // Clear for next session
+          audioLength = 0;
           
           console.log(`[WS] ESP32 triggered STOP. Immediate STT dispatch starting...`);
           
@@ -1903,17 +1906,21 @@ function setupWebSocket(server) {
         } else {
           // Fix 6: Halve upload size by converting to 8-bit PCM immediately
           const chunk8 = pcm16to8(message);
-          audioBuffer = Buffer.concat([audioBuffer, chunk8]);
-
+          audioChunks.push(chunk8); // Fix: Fast push to array (No re-allocation/copy)
+          audioLength += chunk8.length;
+          
           // Fix 1: Speculative Partial Transcription after 1.5s (24,000 samples)
-          if (!partialSent && audioBuffer.length >= 24000) {
+          if (!partialSent && audioLength >= 24000) {
             partialSent = true;
             console.log('[WS] Speculative transcription started (1.5s mark)...');
+            
+            // Assemble partial buffer for the background request
+            const snapshotAudio = Buffer.concat(audioChunks);
             
             // Dispatch in background
             (async () => {
               try {
-                const dataSize = audioBuffer.length;
+                const dataSize = snapshotAudio.length;
                 const wavHeader = Buffer.alloc(44);
                 wavHeader.write('RIFF', 0);
                 wavHeader.writeUInt32LE(36 + dataSize, 4);
@@ -1929,7 +1936,7 @@ function setupWebSocket(server) {
                 wavHeader.write('data', 36);
                 wavHeader.writeUInt32LE(dataSize, 40);
 
-                const wavBuffer = Buffer.concat([wavHeader, audioBuffer]);
+                const wavBuffer = Buffer.concat([wavHeader, snapshotAudio]);
                 const FormData = require('form-data');
                 const fetch = require('node-fetch');
                 const form = new FormData();
