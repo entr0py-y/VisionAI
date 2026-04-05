@@ -144,6 +144,10 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
   }
 }
 
+// Initialize buffers dynamically to prevent stack-based leak fragmentation
+uint8_t* chunk32 = NULL;
+int16_t* chunk16 = NULL;
+
 void setup() {
   Serial.begin(115200);
   Serial.println("Starting ESP32 Mic with WebSockets + Spatial Sensors...");
@@ -251,6 +255,10 @@ void loop() {
       Serial.println("\n[PTT] Interruption started! Beaming zero-latency signal...");
       digitalWrite(LED_BUILTIN, HIGH);
       
+      // FIX 1: Allocate audio buffer cleanly at start of recording
+      if (chunk32 == NULL) chunk32 = (uint8_t*)malloc(2048);
+      if (chunk16 == NULL) chunk16 = (int16_t*)malloc(512 * sizeof(int16_t));
+
       webSocket.sendTXT("START");
       
       isRecording = true;
@@ -266,6 +274,16 @@ void loop() {
     
     webSocket.sendTXT("STOP");
     isRecording = false;
+
+    // FIX 1: Free explicitly after recording transmission completes
+    if (chunk32 != NULL) {
+      free(chunk32);
+      chunk32 = NULL;
+    }
+    if (chunk16 != NULL) {
+      free(chunk16);
+      chunk16 = NULL;
+    }
     
     uint32_t freeHeap = ESP.getFreeHeap();
     if (freeHeap < 20000) {
@@ -286,15 +304,13 @@ void loop() {
   lastTouchState = currentTouchState;
 
   // ─── REAL-TIME AUDIO STREAMING ───
-  if (isRecording) {
-    uint8_t chunk32[2048];
+  if (isRecording && chunk32 != NULL && chunk16 != NULL) {
     size_t bytesRead = 0;
     i2s_read(I2S_PORT, chunk32, 2048, &bytesRead, portMAX_DELAY);
 
     if (bytesRead > 0) {
       int samplesRead = bytesRead / 4; 
       int32_t* ptr32 = (int32_t*)chunk32;
-      int16_t chunk16[512];
       
       // Noise gate threshold: values below this are silenced
       // Increase this if background noise is still too high
