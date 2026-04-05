@@ -461,7 +461,7 @@ function buildSensorContext(sData) {
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
 // ─── Helper: non-streaming AI call ──────────────────────────────────────────
-async function aiComplete(messages, modelInfo = 'gemini-2.0-flash', maxTokens = 512) {
+async function aiComplete(messages, modelInfo = 'gemini-1.5-flash', maxTokens = 512) {
   try {
     const model = genAI.getGenerativeModel({ model: modelInfo });
     const formattedMessages = messages.map(m => ({
@@ -555,7 +555,7 @@ app.post('/api/ai/chat', async (req, res) => {
 
         // Vercel Serverless Functions don't support simple Express streaming 
         if (process.env.VERCEL) {
-          const responseText = await aiComplete(messages, 'gemini-2.0-flash', 1024);
+          const responseText = await aiComplete(messages, 'gemini-1.5-flash', 1024);
           return res.send(responseText);
         }
 
@@ -563,7 +563,7 @@ app.post('/api/ai/chat', async (req, res) => {
         res.setHeader('Transfer-Encoding', 'chunked');
         res.setHeader('Cache-Control', 'no-cache');
 
-        const chatModel = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+        const chatModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
         
         const systemMsgs = messages.filter(m => m.role === 'system').map(m => m.content).join('\n\n');
         // We join the conversation history to give full context
@@ -969,7 +969,7 @@ SENSOR DATA (hardware truth — use this to confirm what you see):
 
       try {
         console.log('[Vision] Sending image to Gemini...');
-        const visionModel = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+        const visionModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
         
         // Extract base64 part without the data URL prefix if it exists
         const base64Data = base64.includes('base64,') ? base64.split('base64,')[1] : base64;
@@ -1003,7 +1003,7 @@ SENSOR DATA (hardware truth — use this to confirm what you see):
             content: description
           }).catch(err => console.error('Supabase vision insert error:', err));
           
-          return res.json({ description, model: 'gemini-2.0-flash', image: base64 });
+          return res.json({ description, model: 'gemini-1.5-flash', image: base64 });
         }
       } catch (visionErr) {
         console.error('[Vision] Gemini Vision Model failed:', visionErr);
@@ -1215,7 +1215,7 @@ app.post('/api/pi/audio-input', emitHardwareStart, express.raw({ type: 'applicat
       const httpSensorCtx = buildSensorContext();
 
       const audioModel = genAI.getGenerativeModel({
-        model: "gemini-2.0-flash",
+        model: "gemini-1.5-flash",
         generationConfig: {
           responseMimeType: "application/json",
           temperature: 0.7,
@@ -1743,7 +1743,7 @@ function setupWebSocket(server) {
               const dateStr = now.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long', month: 'long', day: 'numeric' });
 
               const audioModel = genAI.getGenerativeModel({
-                model: "gemini-2.0-flash",
+                model: "gemini-1.5-flash",
                 generationConfig: {
                   responseMimeType: "application/json",
                   temperature: 0.7,
