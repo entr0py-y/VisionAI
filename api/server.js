@@ -967,15 +967,10 @@ SENSOR DATA (hardware truth — use this to confirm what you see):
       const base64 = image.startsWith('data:') ? image : `data:image/jpeg;base64,${image}`;
 
       try {
-          console.log('[Vision] Sending image to primary vision model (Groq llama-3.2-11b)...');
+          console.log('[Vision] Sending image to primary vision model (NVIDIA phi-4)...');
           
-          const groqVisionClient = new OpenAI({
-            baseURL: 'https://api.groq.com/openai/v1',
-            apiKey: process.env.GROQ_API_KEY
-          });
-
-          const visionResp = await groqVisionClient.chat.completions.create({
-            model: 'llama-3.2-11b-vision-preview',
+          const primaryVisionResp = await visionClient.chat.completions.create({
+            model: 'microsoft/phi-4-multimodal-instruct',
             messages: [
               { role: 'system', content: visionSystemPrompt },
               {
@@ -991,7 +986,7 @@ SENSOR DATA (hardware truth — use this to confirm what you see):
             stream: false,
           });
 
-        const description = visionResp.choices?.[0]?.message?.content?.trim();
+        const description = primaryVisionResp.choices?.[0]?.message?.content?.trim();
         console.log('[Vision] Model response received:', description?.slice(0, 80));
         
         if (description) {
@@ -1003,16 +998,22 @@ SENSOR DATA (hardware truth — use this to confirm what you see):
             content: description
           }).catch(err => console.error('Supabase vision insert error:', err));
           
-          return res.json({ description, model: 'llama-3.2-11b-vision', image: base64 });
+          return res.json({ description, model: 'phi-4-primary', image: base64 });
         }
       } catch (visionErr) {
-        console.error('[Vision] Groq Vision Model failed:', visionErr.status, visionErr.message);
+        console.error('[Vision] NVIDIA Vision Model failed:', visionErr.status, visionErr.message);
         
-        // Let's fallback to NVIDIA if Groq fails
+        // Let's fallback to Groq if NVIDIA fails
         try {
-            console.log('[Vision] Falling back to NVIDIA phi-4-multimodal-instruct...');
-            const fallbackResp = await visionClient.chat.completions.create({
-              model: 'microsoft/phi-4-multimodal-instruct',
+            console.log('[Vision] Falling back to Groq llama-3.2-11b...');
+            
+            const groqVisionClient = new OpenAI({
+              baseURL: 'https://api.groq.com/openai/v1',
+              apiKey: process.env.GROQ_API_KEY
+            });
+
+            const fallbackResp = await groqVisionClient.chat.completions.create({
+              model: 'llama-3.2-11b-vision-preview',
               messages: [
                   { role: 'system', content: visionSystemPrompt },
                   { role: 'user', content: [ { type: 'text', text: userInstruction }, { type: 'image_url', image_url: { url: base64 } } ] }
@@ -1021,7 +1022,7 @@ SENSOR DATA (hardware truth — use this to confirm what you see):
             });
             const fbDesc = fallbackResp.choices?.[0]?.message?.content?.trim();
             if (fbDesc) {
-                return res.json({ description: fbDesc, model: 'phi-4-fallback', image: base64 });
+                return res.json({ description: fbDesc, model: 'llama-3.2-fallback', image: base64 });
             }
         } catch(fallbackErr) {
              console.error('[Vision] Fallback also failed:', fallbackErr.status, fallbackErr.message);
@@ -1235,7 +1236,7 @@ app.post('/api/pi/audio-input', emitHardwareStart, express.raw({ type: 'applicat
         filename: 'audio.wav',
         contentType: 'audio/wav',
       });
-      form.append('model', 'distil-whisper-large-v3-en'); // OPTIMIZED: Faster STT model
+      form.append('model', 'whisper-large-v3-turbo'); // OPTIMIZED: Swapped to Turbo as primary
       form.append('language', 'en');
 
       const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
@@ -1248,11 +1249,11 @@ app.post('/api/pi/audio-input', emitHardwareStart, express.raw({ type: 'applicat
       });
 
       if (!response.ok) {
-        // OPTIMIZED: Fallback to whisper-large-v3-turbo if distil-whisper fails
-        console.warn('[STT] distil-whisper failed, retrying with whisper-large-v3-turbo...');
+        // OPTIMIZED: Fallback to distil-whisper if turbo fails
+        console.warn('[STT] whisper-turbo failed, retrying with distil-whisper-large-v3-en...');
         const fallbackForm = new FormData();
         fallbackForm.append('file', wavBuffer, { filename: 'audio.wav', contentType: 'audio/wav' });
-        fallbackForm.append('model', 'whisper-large-v3-turbo');
+        fallbackForm.append('model', 'distil-whisper-large-v3-en');
         fallbackForm.append('language', 'en');
         const fallbackResp = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
           method: 'POST',
@@ -1294,14 +1295,14 @@ app.post('/api/pi/audio-input', emitHardwareStart, express.raw({ type: 'applicat
     let aiResponse = "";
     
     try {
-      console.log(`[DEBUG] Running AI Reasoning via Llama 3.3...`);
+      console.log(`[DEBUG] Running AI Reasoning via Llama...`);
       const now = new Date();
       // Adjust to IST as that seems to be the user's timezone from the logs
       const timeStr = now.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
       const dateStr = now.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long', month: 'long', day: 'numeric' });
       
       const httpSensorCtx = buildSensorContext();
-      const chatPromise = client.chat.completions.create({
+      const chatPromise = groqClient.chat.completions.create({
         model: 'llama-3.1-8b-instant',
         messages: [
           { role: 'system', content: VISION_PERSONA + `\n\nThe current time is ${timeStr}, ${dateStr}. Respond concisely (under 30 words). The user might call you 'Jenny' or other names — just respond helpfully. Current sensor readings:\n` + httpSensorCtx },
