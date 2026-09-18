@@ -1,4 +1,5 @@
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <WebSocketsClient.h>
 #include <driver/i2s.h>
 
@@ -198,7 +199,10 @@ void setup() {
   Serial.println("Sensors initialized.");
 
   // 4. WS SERVER SETUP
-  webSocket.beginSSL(serverIp, serverPort, "/api/pi/ws", "", "");
+  // setInsecure() tells the library to skip SSL cert verification.
+  // Required for connecting to Render (certs rotate frequently).
+  webSocket.beginSSL(serverIp, serverPort, "/api/pi/ws");
+  webSocket.setInsecure();
   webSocket.onEvent(webSocketEvent);
   webSocket.setReconnectInterval(5000);
 }
