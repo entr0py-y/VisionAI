@@ -2583,6 +2583,12 @@
       // ===== VOICE INPUT — delegates to VoiceAssistantController =====
       let speechRecognition = null; // kept for compat
       function toggleVoiceInput() {
+        // ── Automatic fallback: if ESP32-MIC is offline, use phone mic ──
+        if (window._hwState && !window._hwState.micOnline) {
+          if (typeof window.startBrowserMic === 'function') window.startBrowserMic();
+          return;
+        }
+
         const controller =
           typeof VoiceAssistantController !== "undefined"
             ? VoiceAssistantController
@@ -3747,13 +3753,10 @@ function navSOS(el) {
              if (dotCam) { if (data.camOnline) dotCam.classList.add('online'); else dotCam.classList.remove('online'); }
              if (dotMic) { if (data.micOnline) dotMic.classList.add('online'); else dotMic.classList.remove('online'); }
 
-             // Only act when state actually changes
-             if (data.micOnline !== window._hwState.micOnline || data.camOnline !== window._hwState.camOnline) {
-               window._hwState.micOnline = data.micOnline;
-               window._hwState.camOnline = data.camOnline;
-               _updateHwBadges(data.micOnline, data.camOnline);
-               _patchMicButton(data.micOnline);
-             }
+             window._hwState.micOnline = data.micOnline;
+             window._hwState.camOnline = data.camOnline;
+             _updateHwBadges(data.micOnline, data.camOnline);
+             _patchMicButton(data.micOnline);
            } catch(e) {
              const dotCam = document.getElementById('dotCam');
              const dotMic = document.getElementById('dotMic');

@@ -92,10 +92,17 @@ const VisionController = (() => {
   async function analyseScene(userPrompt) {
     const useDeviceCamera = wantsDeviceCamera(userPrompt);
 
-    try {
-       if (useDeviceCamera) {
-         uiMsg('📷 Using the device inbuilt camera only...', 'ai');
-         speak('Using the device camera only. Please allow camera access and hold still.');
+     try {
+       // ── Automatic fallback: if ESP32-CAM is offline, use device camera immediately ──
+       const camOffline = window._hwState && !window._hwState.camOnline;
+       if (useDeviceCamera || camOffline) {
+         if (camOffline && !useDeviceCamera) {
+           uiMsg('📱 ESP32-CAM offline — using phone camera...', 'ai');
+           speak('ESP32 camera offline. Using phone camera. Please hold still.');
+         } else {
+           uiMsg('📷 Using the device inbuilt camera only...', 'ai');
+           speak('Using the device camera only. Please allow camera access and hold still.');
+         }
 
          const image = await captureDeviceCameraFrame();
          const resp = await fetch(getBackendUrl('/api/vision'), {
