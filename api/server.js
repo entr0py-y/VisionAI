@@ -1584,6 +1584,76 @@ app.get('/api/pi/health', (req, res) => {
   });
 });
 
+// NEW: Browser Mic Fallback — receives audio from phone/laptop browser when ESP32-MIC is offline
+// Mirrors the ESP32 audio pipeline: Groq STT → AI → AUDIO_RESULT SSE
+app.post('/api/pi/browser-audio', upload.single('audio'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No audio file' });
+  res.json({ received: true }); // respond immediately, process async
+
+  try {
+    const FormData = require('form-data');
+    const fetch = require('node-fetch');
+    const form = new FormData();
+
+    // Browser sends webm/ogg — Groq accepts it directly, no conversion needed
+    form.append('file', req.file.buffer, {
+      filename: 'audio.webm',
+      contentType: req.file.mimetype || 'audio/webm'
+    });
+    form.append('model', 'whisper-large-v3-turbo');
+    form.append('language', 'en');
+
+    const sttResponse = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${process.env.GROQ_API_KEY}`, ...form.getHeaders() },
+      body: form
+    });
+
+    if (!sttResponse.ok) {
+      console.error('[BROWSER-MIC] STT failed:', await sttResponse.text());
+      return;
+    }
+
+    const sttData = await sttResponse.json();
+    const transcript = (sttData.text || '').trim();
+    if (!transcript) return;
+
+    console.log(`[BROWSER-MIC] Transcript: ${transcript}`);
+    safeInsert('messages', { role: 'user', content: transcript, type: 'voice', username: 'browser_user' }).catch(() => {});
+
+    // Run AI — same pipeline as ESP32
+    const wsClient = new OpenAI({
+      baseURL: process.env.GROQ_BASE_URL || 'https://api.groq.com/openai/v1',
+      apiKey: process.env.GROQ_API_KEY || HARDCODED_KEY,
+    });
+
+    const spatialContext = buildSensorContext();
+    const modeNote = lastSensorMode === 'ALERT' ? '\n⚠️ SENSOR MODE: HIGH ALERT.' : '';
+    const now2 = new Date();
+    const timeStr = now2.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
+    const systemPrompt = VISION_PERSONA + `\n\nThe current time is ${timeStr}. VOICE interaction — under 30 words.\n` + spatialContext + modeNote;
+
+    const chatCompletion = await wsClient.chat.completions.create({
+      model: 'llama-3.1-8b-instant',
+      messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: transcript }],
+      temperature: 0.7,
+      max_tokens: 50,
+    });
+
+    const aiResponse = chatCompletion.choices[0].message.content.trim();
+    safeInsert('messages', { role: 'assistant', content: aiResponse, type: 'voice', username: 'browser_user' }).catch(() => {});
+
+    const finalData = { text: aiResponse, transcript };
+    streamClients.forEach(client => {
+      client.write(`data: {"event": "AUDIO_RESULT", "data": ${JSON.stringify(finalData)}}\n\n`);
+    });
+
+    console.log(`[BROWSER-MIC] AI: ${aiResponse}`);
+  } catch (err) {
+    console.error('[BROWSER-MIC] Pipeline failed:', err.message);
+  }
+});
+
 // SENSOR DEBUG — live view of what the ultrasonic is actually reading
 app.get('/api/pi/sensor-debug', (req, res) => {
   const now = Date.now();
