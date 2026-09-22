@@ -182,9 +182,10 @@ const VisionController = (() => {
       log('Device camera fetch failed: ' + err.message);
       const fallback = 'Device camera unavailable or permission denied. Please allow camera access and try again.';
       uiMsg('⚠️ ' + fallback, 'ai');
+      speak(fallback);
+
       return null;
     }
-  }
   }
 
   /**
