@@ -146,67 +146,75 @@ const VoiceAssistantController = (() => {
   }
 
   async function captureCommand() {
-    log("Capturing command via HARDWARE ESP32 Trigger...");
+    log("Capturing command. Checking hardware ESP32...");
 
     if (isRecordingState) {
-      log("Already waiting for hardware.");
+      log("Already waiting for hardware or listening locally.");
       return;
     }
 
     isRecordingState = true;
-    setMicUI(true); // Spin the mic UI while waiting for ESP32
-    
-    if (typeof addChatMessage === "function") {
-      addChatMessage("ai", "📡 Contacting ESP32 Mic...");
-    }
-
-    // Ping Backend cleanly without overlapping HTTP requests
-    let hasNotifiedListening = false;
-    const pollListening = async () => {
-      if (!isRecordingState || hasNotifiedListening) return;
-      try {
-        const ping = await fetch(getBackendUrl('/api/pi/listening-status'));
-        const pingData = await ping.json();
-        if (pingData.listening && !hasNotifiedListening) {
-          hasNotifiedListening = true;
-          addChatMessage("system", "🟢 LISTENING NOW! Speak for 3 seconds...");
-          return;
-        }
-      } catch (e) {
-        // silently fail polling
-      }
-      if (!hasNotifiedListening) setTimeout(pollListening, 150);
-    };
-    pollListening();
+    setMicUI(true);
 
     try {
-      // Tell the backend to command the ESP32 to record, and Wait for the reply!
-      const response = await fetch(getBackendUrl('/api/pi/trigger-hardware-mic'), {
-        method: 'POST'
-      });
+      // Check health endpoint to see if ESP32-MIC is actually online
+      const healthCheck = await fetch(getBackendUrl('/api/pi/health')).catch(() => ({ ok: false }));
+      let hwOnline = false;
+      if (healthCheck && healthCheck.ok) {
+        const hData = await healthCheck.json();
+        hwOnline = hData.micOnline;
+      }
+
+      if (!hwOnline) {
+        log("ESP32 Mic is offline. Falling back to built-in Web Speech API.");
+        if (typeof addChatMessage === "function") {
+          addChatMessage("ai", "🎙️ Hardware mic offline. Using built-in microphone...");
+        }
+        startRecognitionSafely();
+        return; // Built-in handles the rest via onresult
+      }
+
+      // ESP32 is online, trigger it
+      if (typeof addChatMessage === "function") {
+        addChatMessage("ai", "📡 Contacting ESP32 Mic...");
+      }
+
+      let hasNotifiedListening = false;
+      const pollListening = async () => {
+        if (!isRecordingState || hasNotifiedListening) return;
+        try {
+          const ping = await fetch(getBackendUrl('/api/pi/listening-status'));
+          const pingData = await ping.json();
+          if (pingData.listening && !hasNotifiedListening) {
+            hasNotifiedListening = true;
+            addChatMessage("system", "🟢 LISTENING NOW! Speak for 3 seconds...");
+            return;
+          }
+        } catch (e) {}
+        if (!hasNotifiedListening) setTimeout(pollListening, 150);
+      };
+      pollListening();
+
+      // Tell backend to trigger hardware
+      const response = await fetch(getBackendUrl('/api/pi/trigger-hardware-mic'), { method: 'POST' });
 
       isRecordingState = false;
       setMicUI(false);
 
       if (!response.ok) {
-        log("Hardware routing timeout.");
+        log("Hardware routing failed. Falling back to built-in Web Speech API.");
         if (typeof addChatMessage === "function") {
-          addChatMessage("ai", "Hardware Mic timed out or ESP32 is offline.");
+          addChatMessage("ai", "⚠️ Hardware timed out. Falling back to built-in microphone...");
         }
+        startRecognitionSafely();
         return;
       }
 
       const data = await response.json();
-      log(`Received hardware transcript: ${data.transcript}`);
-      log(`Received AI Reply: ${data.text}`);
-
-      // We have the User's transcript AND the AI's reply. 
-      // Insert User's text into UI
       if (typeof addChatMessage === 'function') {
         addChatMessage("user", data.transcript);
       }
       
-      // Instead of relying on backend's simple reply, route the transcribed audio to our smart Llama RouterEngine!
       if (typeof RouterEngine !== 'undefined' && typeof RouterEngine.dispatch === 'function') {
          RouterEngine.dispatch(data.transcript);
       } else {
@@ -214,9 +222,11 @@ const VoiceAssistantController = (() => {
       }
 
     } catch (err) {
-      isRecordingState = false;
-      setMicUI(false);
-      log("Hardware fetch failed: " + err.message);
+      log("Hardware fetch failed: " + err.message + ". Falling back to Web Speech.");
+      if (typeof addChatMessage === "function") {
+        addChatMessage("ai", "⚠️ Connection error. Falling back to built-in microphone...");
+      }
+      startRecognitionSafely();
     }
   }
 

@@ -94,32 +94,21 @@ const VisionController = (() => {
 
     try {
        if (useDeviceCamera) {
-         uiMsg('📷 Using the device inbuilt camera only...', 'ai');
-         speak('Using the device camera only. Please allow camera access and hold still.');
+         return await runDeviceCamera(userPrompt);
+       }
 
-         const image = await captureDeviceCameraFrame();
-         const resp = await fetch(getBackendUrl('/api/vision'), {
-           method: 'POST',
-           headers: { 'Content-Type': 'application/json' },
-           body: JSON.stringify({
-             image,
-             prompt: userPrompt || '',
-             source: 'browser',
-             username: localStorage.getItem('visionAidUsername') || 'unknown',
-           }),
-         });
-         if (!resp.ok) throw new Error('Device camera analysis failed');
-         const data = await resp.json();
-         const description = data.description || 'I could not analyse the device camera image.';
-         const capturedImage = data.image || image || null;
-         uiMsg('👁️ ' + description, 'ai', capturedImage);
-         speak(description);
+       // Check if ESP32-CAM is online
+       const healthCheck = await fetch(getBackendUrl('/api/pi/health')).catch(() => ({ ok: false }));
+       let hwOnline = false;
+       if (healthCheck && healthCheck.ok) {
+         const hData = await healthCheck.json();
+         hwOnline = hData.camOnline;
+       }
 
-         if (typeof conversationHistory !== 'undefined') {
-           conversationHistory.push({ role: 'model', text: description });
-           if (typeof saveMemory === 'function') saveMemory();
-         }
-         return description;
+       if (!hwOnline) {
+         log("ESP32-CAM is offline. Falling back to device camera.");
+         uiMsg('⚠️ Hardware camera offline. Falling back to device camera...', 'ai');
+         return await runDeviceCamera(userPrompt);
        }
 
        uiMsg('📸 Triggering ESP32 Camera to analyse your surroundings...', 'ai');
@@ -148,13 +137,54 @@ const VisionController = (() => {
        return description;
     } catch(espErr) {
        log('Hardware camera fetch failed: ' + espErr.message);
-       const fallback = useDeviceCamera
-         ? 'Device camera unavailable or permission denied. Please allow camera access and try again.'
-         : 'Hardware camera offline or timed out. Please check your ESP32-CAM connection.';
-       uiMsg('⚠️ ' + fallback, 'ai');
-       speak(fallback);
-       return null;
+       if (!useDeviceCamera) {
+          log("Hardware camera failed. Falling back to device camera.");
+          uiMsg('⚠️ Hardware camera timed out. Falling back to device camera...', 'ai');
+          return await runDeviceCamera(userPrompt);
+       } else {
+          const fallback = 'Device camera unavailable or permission denied. Please allow camera access and try again.';
+          uiMsg('⚠️ ' + fallback, 'ai');
+          speak(fallback);
+          return null;
+       }
     }
+  }
+
+  async function runDeviceCamera(userPrompt) {
+    try {
+      uiMsg('📷 Using the device inbuilt camera...', 'ai');
+      speak('Using the device camera. Please allow camera access and hold still.');
+
+      const image = await captureDeviceCameraFrame();
+      const resp = await fetch(getBackendUrl('/api/vision'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          image,
+          prompt: userPrompt || '',
+          source: 'browser',
+          username: localStorage.getItem('visionAidUsername') || 'unknown',
+        }),
+      });
+      if (!resp.ok) throw new Error('Device camera analysis failed');
+      const data = await resp.json();
+      const description = data.description || 'I could not analyse the device camera image.';
+      const capturedImage = data.image || image || null;
+      uiMsg('👁️ ' + description, 'ai', capturedImage);
+      speak(description);
+
+      if (typeof conversationHistory !== 'undefined') {
+        conversationHistory.push({ role: 'model', text: description });
+        if (typeof saveMemory === 'function') saveMemory();
+      }
+      return description;
+    } catch(err) {
+      log('Device camera fetch failed: ' + err.message);
+      const fallback = 'Device camera unavailable or permission denied. Please allow camera access and try again.';
+      uiMsg('⚠️ ' + fallback, 'ai');
+      return null;
+    }
+  }
   }
 
   /**
