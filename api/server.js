@@ -584,30 +584,17 @@ app.post('/api/ai/chat', async (req, res) => {
     // Build live sensor context for spatial awareness
     const sensorInfo = buildSensorContext();
 
-    const defaultPrompt = VISION_PERSONA + `\n\n⚠️ CRITICAL: The sensor readings below are LIVE — captured at this exact moment (${new Date().toLocaleTimeString()}). They OVERRIDE anything mentioned in previous messages. The user may have moved since their last question. ALWAYS answer based on THESE readings, NEVER repeat old readings from chat history.\n\n` + sensorInfo;
+    const defaultPrompt = VISION_PERSONA + `\n\nLIVE SENSOR DATA (${new Date().toLocaleTimeString()}):\n` + sensorInfo;
 
     const fullSystemPrompt = systemPrompt ? (systemPrompt + '\n\n' + defaultPrompt) : defaultPrompt;
 
     const messages = [{ role: 'system', content: fullSystemPrompt }];
 
     if (history && Array.isArray(history)) {
-      for (const entry of history) {
+      // Only keep last 6 history entries to reduce token count and speed up
+      const recentHistory = history.slice(-6);
+      for (const entry of recentHistory) {
         let content = entry.text || '';
-        // Strip stale sensor/distance readings from old assistant messages
-        // so the model can ONLY rely on the fresh sensor snapshot
-        if (entry.role !== 'user' && content) {
-          content = content
-            .replace(/(?:about|around|roughly|approximately|nearly|almost)?\s*\d+(?:\.\d+)?\s*(?:cm|centimetres?|centimeters?|metres?|meters?|m)\s*(?:away|ahead|from|to|in front)?[^.!?]*[.!?]?/gi, '')
-            .replace(/(?:nothing|no\s+(?:object|obstacle)s?)\s+(?:within|closer\s+than|(?:detected\s+)?(?:within|nearby|in\s+range))[^.!?]*[.!?]?/gi, '')
-            .replace(/(?:(?:path|area|space)\s*(?:is|'s|looks?)?\s*(?:clear|wide\s+open|open)|(?:all|everything'?s?)\s+clear|clear\s+(?:ahead|for\s+now|in\s+front))[^.!?]*[.!?]?/gi, '')
-            .replace(/(?:arm'?s?\s+length|a\s+(?:couple|few|short)\s+(?:of\s+)?(?:steps?|metres?|meters?)|right\s+in\s+front\s+of\s+you|almost\s+touching|step\s+or\s+two|open\s+space)[^.!?]*[.!?]?/gi, '')
-            .replace(/(?:something(?:'s)?\s+(?:pretty\s+)?(?:close|near|right|ahead|there|moving)|there(?:'s)?\s+(?:something|an?\s+\w+)\s+(?:close|near|ahead|right|straight))[^.!?]*[.!?]?/gi, '')
-            .replace(/(?:(?:something|anything|nothing)(?:'s)?\s+moving|movement\s+(?:detected|nearby)|area\s+is\s+(?:still|quiet)|no\s+movement)[^.!?]*[.!?]?/gi, '')
-            .replace(/(?:still\s+(?:clear|nothing|no\s+\w+)|same\s+as\s+before)[^.!?]*[.!?]?/gi, '')
-            .replace(/\.{2,}/g, '.')
-            .replace(/\s{2,}/g, ' ')
-            .trim();
-        }
         if (content) {
           messages.push({
             role: entry.role === 'user' ? 'user' : 'assistant',
@@ -616,12 +603,6 @@ app.post('/api/ai/chat', async (req, res) => {
         }
       }
     }
-
-    // Inject FRESH sensor snapshot right before user's message so model can't miss it
-    messages.push({
-      role: 'system',
-      content: `[LIVE SENSOR UPDATE — ${new Date().toLocaleTimeString()}]\n${sensorInfo}\n\nCRITICAL INSTRUCTION: The readings above are the ONLY valid sensor data. Any distances, obstacle mentions, or sensor values from earlier messages in this conversation are STALE and WRONG. NEVER repeat, reference, or echo any sensor reading from previous assistant messages. If the user says "now?", "check again", "what about now", or any follow-up — respond ONLY with these fresh readings.`
-    });
 
     messages.push({ role: 'user', content: message });
     try {
@@ -637,8 +618,8 @@ app.post('/api/ai/chat', async (req, res) => {
         const stream = await p.client.chat.completions.create({
           model: p.model,
           messages,
-          temperature: 0.7,
-          max_tokens: 1024,
+          temperature: 0.5,
+          max_tokens: 512,
           stream: true,
         });
 

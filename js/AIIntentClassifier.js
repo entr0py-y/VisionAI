@@ -5,16 +5,13 @@
  *   NAVIGATION    — explicit navigation commands only ("take me to", "navigate to")
  *   VISION        — visual analysis / camera usage
  *   LOCATION_INFO — user asking about their current position ("where am I")
- *   PLACE_SEARCH  — asking about nearby places, no map opened ("nearest metro")
- *   GENERAL_CHAT  — everything else
+ *   PLACE_SEARCH  — asking about nearby places ("nearest metro", "find a hospital")
+ *   GENERAL_CHAT  — everything else (DEFAULT — fastest path)
  *
- * Classification strategy (layered, fastest-first):
- *   1. Pattern matching  → instant, zero-latency
- *   2. Local keyword pre-classifier → instant, skips API for ~80% of queries // OPTIMIZED
- *   3. Server classify   → calls /api/ai/classify (also rule-based, no LLM delay)
- *
- * Returns a classification object:
- *   { intent: string, destination: string|null, confidence: 'pattern'|'local'|'api'|'fallback' }
+ * Speed strategy:
+ *   1. Pattern match obvious commands → instant (0ms)
+ *   2. If message has NO spatial/device words → GENERAL_CHAT instantly (0ms)
+ *   3. Only if ambiguous (has spatial words but pattern didn't match) → ask LLM (~500ms)
  */
 
 const AIIntentClassifier = (() => {
@@ -28,23 +25,17 @@ const AIIntentClassifier = (() => {
     /route\s+to\s+(.+)/i,
     /lead\s+me\s+to\s+(.+)/i,
     /walk\s+me\s+to\s+(.+)/i,
-    /bring\s+me\s+to\s+(.+)/i,
     /i\s+(?:want|need)\s+to\s+(?:go|get|navigate|reach)\s+to\s+(.+)/i,
     /(?:go|head|get)\s+to\s+(.+)/i,
   ];
 
-  /* ── VISION patterns ── */
+  /* ── VISION patterns — only when clearly asking about physical surroundings ── */
   const VISION_PATTERNS = [
-    /^(?:see|look|vision|scan|describe)$/i,
-    /(?:what|who|describe|tell\s+me\s+about|identify|analys?e|analyze|look\s+at|see|scan|read|detect|recognize|check)\s+(?:what\s+is\s+)?(?:in\s+front\s+of\s+me|around\s+me|ahead|this|that|here|this\s+image|this\s+photo|my\s+surroundings?)/i,
+    /^(?:see|look|vision|scan|describe|camera)$/i,
+    /(?:what|who|describe|identify|look\s+at|see|scan|read|detect|check)\s+(?:in\s+front\s+of\s+me|around\s+me|ahead|this|that|my\s+surroundings?)/i,
     /(?:what\s+(?:do\s+i\s+)?see|what\s+(?:am\s+i\s+looking\s+at|is\s+this|is\s+that|is\s+in\s+front))/i,
-    /(?:what\s+is|what\s+are|read|tell\s+me\s+what\s+is)\s+(?:written\s+)?(?:in\s+front\s+of\s+me|here|there|on\s+it|on\s+the\s+screen|in\s+this\s+image|in\s+this\s+photo)/i,
-    /(?:read|tell\s+me|what\s+is)\s+(?:what(?:'s|\s+is)?\s+written|the\s+text|the\s+sign|the\s+words)\s+(?:in\s+front\s+of\s+me|here|there|on\s+it|on\s+the\s+screen|in\s+this\s+image|in\s+this\s+photo)/i,
-    /(?:read|tell\s+me|what\s+is|identify)\s+(?:the\s+)?(?:currency|money|note|notes|bill|bills|receipt|menu|label|sign|board|package|bottle|can|serial\s+number|barcode|text)/i,
-    /(?:what\s+is\s+written\s+on|read\s+the|read\s+what\s+is\s+written\s+on)\s+(?:this\s+)?(?:currency|money|note|notes|bill|bills|receipt|menu|label|sign|board|package|bottle|can|paper|document)/i,
-    /(?:use|switch\s+to|open|start|activate|force)\s+(?:the\s+)?(?:device\s+)?(?:camera\s+input|device\s+camera|inbuilt\s+camera|built[-\s]?in\s+camera|webcam|browser\s+camera)/i,
-    /(?:use|open|start|activate)\s+(?:the\s+)?(?:camera|vision|object\s+detection)/i,
-    /(?:is\s+there\s+(?:any|a|an)\s+(?:person|car|obstacle|sign|text|object)|read\s+(?:the\s+)?(?:sign|text|label|menu|board))/i,
+    /(?:what\s+is|read)\s+(?:written\s+)?(?:in\s+front\s+of\s+me|here|there|on\s+it|on\s+the\s+screen)/i,
+    /(?:use|open|start|activate)\s+(?:the\s+)?(?:camera|vision|webcam)/i,
     /(?:what\s+(?:color|colour)|describe\s+(?:my\s+)?surroundings?|tell\s+me\s+what\s+you\s+see)/i,
     /detect\s+(?:objects?|people|obstacles?|text|signs?)/i,
   ];
@@ -55,56 +46,22 @@ const AIIntentClassifier = (() => {
     'what is my location', 'where are we', 'what city am i in', 'what area am i in',
   ];
 
-  /* ── SENSOR_KW: physical proximity queries (NOT map searches) ── */
-  const SENSOR_KW = [
-    'nearest object', 'nearest obstacle', 'close to me', 'anything close',
-    'something near', 'something close', 'is there something', 'anything near',
-    'how far', 'how close', 'am i near anything', 'is the path clear',
-    'path clear', 'obstacle', 'in front of me', 'behind me',
-    'to my left', 'to my right', 'what is ahead', 'anything ahead',
-    'is anything near', 'something moving', 'is something moving',
-    'movement near', 'anyone near', 'anyone close'
-  ];
-
-  /* ── PLACE_SEARCH: nearby info queries — NO map, NO navigation ── */
-  const PLACE_SEARCH_KW = [
-    'where is the', 'where is a', 'find a ', 'find the ',
-    'is there a ', 'is there an '
-  ];
-  const NAMED_PLACE_AFTER_NEAREST = /(?:nearest|closest)\s+(hospital|school|pharmacy|market|station|airport|bus stop|temple|mosque|church|mall|park|restaurant|cafe|shop|police|bank|hotel|atm|clinic|office|store|supermarket|metro)/i;
-
-  // OPTIMIZED: Frontend Intent Pre-classifier — eliminates server round-trip for ~80% of queries
-  const LOCAL_SENSOR_KEYWORDS = [
-    'near', 'close', 'far', 'distance', 'object', 'obstacle', 'ahead',
-    'front', 'behind', 'left', 'right', 'moving', 'path', 'clear', 'stop'
-  ];
-  const LOCAL_VISION_KEYWORDS = [
-    'what is this', 'what is that', 'what is in front', 'what am i looking at',
-    'what do i see', 'look at', 'describe this', 'describe that',
-    'read this', 'read that', 'read the sign', 'read the text', 'read the label',
-    'scan', 'use camera', 'open camera', 'take a photo',
-    'what color', 'what colour', 'identify this', 'detect',
-    'currency', 'tell me what you see', 'my surroundings'
-  ];
-  const LOCAL_LOCATION_KEYWORDS = [
-    'where am i', 'location', 'navigate', 'directions', 'how do i get'
-  ];
+  /* ── PLACE_SEARCH: only "nearest/closest/find + named place type" ── */
+  const NAMED_PLACE_PATTERN = /(?:nearest|closest|find\s+(?:a|the|me\s+a))\s+(hospital|school|pharmacy|market|station|airport|bus\s*stop|temple|mosque|church|mall|park|restaurant|cafe|shop|police|bank|hotel|atm|clinic|office|store|supermarket|metro|gas\s*station|petrol\s*pump|toilet|restroom|bathroom|library|gym|cinema|theater|theatre)/i;
 
   /**
-   * OPTIMIZED: Lightweight local keyword classifier — zero network, instant result.
-   * Returns 'SENSOR', 'VISION', 'LOCATION', or 'UNKNOWN'.
+   * Words that MIGHT mean the user wants something spatial/device-related.
+   * If the message contains any of these, we ask the LLM to classify.
+   * If it contains NONE of these, it's definitely GENERAL_CHAT — zero delay.
    */
-  function classifyIntentLocally(text) {
-    const t = text.toLowerCase();
-    if (LOCAL_SENSOR_KEYWORDS.some(k => t.includes(k))) return 'SENSOR';
-    if (LOCAL_VISION_KEYWORDS.some(k => t.includes(k))) return 'VISION';
-    if (LOCAL_LOCATION_KEYWORDS.some(k => t.includes(k))) return 'LOCATION';
-    return 'UNKNOWN';
-  }
+  const SPATIAL_HINT_WORDS = [
+    'camera', 'scan', 'surroundings', 'in front', 'ahead', 'obstacle',
+    'nearest', 'closest', 'nearby', 'around me', 'look at', 'detect',
+    'read this', 'read that', 'read the', 'what is this', 'what is that',
+    'identify', 'describe this', 'describe that', 'what do i see',
+    'find a ', 'find the ', 'find me',
+  ];
 
-  /**
-   * Extract a navigation destination from NAV_PATTERNS.
-   */
   function extractDestination(msg) {
     for (const pattern of NAV_PATTERNS) {
       const m = msg.trim().match(pattern);
@@ -115,22 +72,15 @@ const AIIntentClassifier = (() => {
 
   /**
    * Synchronous pattern-based classification (instant).
-   * Returns null if undecided — never touches the network.
+   * Only catches OBVIOUS cases. Returns null if unsure.
    */
   function classifyByPattern(msg) {
-    let lower = msg.toLowerCase().trim();
-    // Normalize common typos
-    lower = lower.replace(/what'?s/g, 'what is')
-           .replace(/infront/g, 'in front')
-           .replace(/wriotten/g, 'written')
-           .replace(/surounding/g, 'surrounding');
+    const lower = msg.toLowerCase().trim();
 
-    // Vision check first (very specific)
     for (const p of VISION_PATTERNS) {
       if (p.test(lower)) return { intent: 'VISION', destination: null, confidence: 'pattern' };
     }
 
-    // Navigation — explicit action verbs ONLY
     for (const p of NAV_PATTERNS) {
       const m = lower.match(p);
       if (m && m[1]) {
@@ -139,51 +89,28 @@ const AIIntentClassifier = (() => {
       }
     }
 
-    // Location info — user asking about current position
-    // Exclude if asking for distance or routing to another place
-    const isDistanceQuery = /how\s+far|distance|route|navigate|directions|where\s+is/i.test(lower);
-    if (!isDistanceQuery && LOCATION_INFO_KW.some(k => lower.includes(k))) {
+    if (LOCATION_INFO_KW.some(k => lower.includes(k))) {
       return { intent: 'LOCATION_INFO', destination: null, confidence: 'pattern' };
     }
 
-    // Sensor check — bypass place search
-    if (SENSOR_KW.some(k => lower.includes(k))) {
-      return { intent: 'GENERAL_CHAT', destination: null, confidence: 'pattern' };
+    const placeMatch = NAMED_PLACE_PATTERN.exec(lower);
+    if (placeMatch) {
+      return { intent: 'PLACE_SEARCH', destination: placeMatch[1].trim(), confidence: 'pattern' };
     }
 
-    // Place search — info about nearby place, no navigation
-    const placePhraseMatch = NAMED_PLACE_AFTER_NEAREST.exec(lower);
-    if (placePhraseMatch) {
-      return { intent: 'PLACE_SEARCH', destination: placePhraseMatch[1].trim(), confidence: 'pattern' };
-    }
-    
-    if (PLACE_SEARCH_KW.some(k => lower.includes(k))) {
-      const pm = msg.match(/(?:find\s+(?:a|the)?|where\s+is\s+(?:the|a|an)?)\s+(.+)/i);
-      let dest = pm ? pm[1] : null;
-      if (dest) {
-          dest = dest.replace(/\b(?:is\s+)?from\s+(?:my\s+location|here|me)\b/i, '')
-                     .replace(/[?.!,;]+$/, '')
-                     .trim();
-      }
-      return { intent: 'PLACE_SEARCH', destination: dest, confidence: 'pattern' };
-    }
-
-    return null; // undecided
+    return null;
   }
 
-  /**
-   * Server-side classify fallback — also rule-based, no LLM, instant.
-   * Has a 5-second abort timeout so the chat is never silently blocked.
-   * OPTIMIZED: Sends localIntent hint to server so it can skip classification
-   */
-  async function classifyByAPI(msg, localIntent) {
+  function classifyIntentLocally() { return 'UNKNOWN'; }
+
+  async function classifyByAPI(msg) {
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort('classify_timeout'), 12000);
+      const timer = setTimeout(() => controller.abort('classify_timeout'), 4000);
       const resp = await fetch(getBackendUrl('/api/ai/classify'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: msg, localIntent: localIntent || undefined }),
+        body: JSON.stringify({ message: msg }),
         signal: controller.signal,
       });
       clearTimeout(timer);
@@ -192,7 +119,7 @@ const AIIntentClassifier = (() => {
       return {
         intent: data.intent || 'GENERAL_CHAT',
         destination: data.destination || null,
-        confidence: data.source === 'local' ? 'local' : 'api',
+        confidence: data.source || 'api',
       };
     } catch (e) {
       console.warn('[AIIntentClassifier] classify failed, defaulting to GENERAL_CHAT', e.message);
@@ -201,23 +128,22 @@ const AIIntentClassifier = (() => {
   }
 
   /**
-   * Main classify function — always resolves, never throws.
-   * Strategy:
-   *   1. Pattern matching for obvious commands (navigate, where am I) — instant
-   *   2. Everything else → server LLM classification (reads the sentence properly)
-   * @param {string} msg
-   * @returns {Promise<{intent: string, destination: string|null, confidence: string}>}
+   * Main classify — always resolves, never throws.
    */
   async function classify(msg) {
     if (!msg || typeof msg !== 'string' || msg.trim().length === 0) {
       return { intent: 'GENERAL_CHAT', destination: null, confidence: 'empty' };
     }
 
-    // Fast pass: local pattern match for obvious commands (zero-latency)
     const patternResult = classifyByPattern(msg);
     if (patternResult) return patternResult;
 
-    // Everything else → server AI classification (reads the actual sentence)
+    const lower = msg.toLowerCase();
+    const hasSpatialHint = SPATIAL_HINT_WORDS.some(w => lower.includes(w));
+    if (!hasSpatialHint) {
+      return { intent: 'GENERAL_CHAT', destination: null, confidence: 'fast' };
+    }
+
     return await classifyByAPI(msg);
   }
 
