@@ -457,47 +457,56 @@ function buildSensorContext(sData) {
   return lines.join('\n');
 }
 
-// ─── AI Client Configuration (Supports both NVIDIA NIM and Groq) ────────────
-const isNvidia = Boolean(process.env.NVIDIA_API_KEY);
+// ─── AI Client Configuration (Resilient NVIDIA NIM + Groq Fallback) ────────
+const nvidiaKey = process.env.NVIDIA_API_KEY || process.env.VISION_API_KEY;
+const groqKey   = process.env.GROQ_API_KEY;
 
-const chatBaseURL = isNvidia
-  ? 'https://integrate.api.nvidia.com/v1'
-  : (process.env.GROQ_BASE_URL || 'https://api.groq.com/openai/v1');
+// NVIDIA Client
+const nvidiaClient = new OpenAI({
+  baseURL: process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1',
+  apiKey:  nvidiaKey || HARDCODED_KEY,
+});
 
-const chatApiKey = process.env.NVIDIA_API_KEY || process.env.GROQ_API_KEY || HARDCODED_KEY;
-
-const chatModel = isNvidia
-  ? (process.env.NVIDIA_CHAT_MODEL || 'nvidia/llama-3.1-nemotron-70b-instruct')
-  : (process.env.GROQ_CHAT_MODEL || 'llama-3.1-8b-instant');
-
-// Groq client (for Whisper STT)
+// Groq Client
 const groqClient = new OpenAI({
   baseURL: process.env.GROQ_BASE_URL || 'https://api.groq.com/openai/v1',
-  apiKey:  process.env.GROQ_API_KEY || process.env.NVIDIA_API_KEY || HARDCODED_KEY,
+  apiKey:  groqKey || HARDCODED_KEY,
 });
 
-// Chat client
-const chatClient = new OpenAI({
-  baseURL: chatBaseURL,
-  apiKey:  chatApiKey,
-});
+// Dedicated Vision Client
+const visionClient = nvidiaClient;
 
-// Vision client (NVIDIA API)
-const visionClient = new OpenAI({
-  baseURL: process.env.VISION_BASE_URL || 'https://integrate.api.nvidia.com/v1',
-  apiKey:  process.env.NVIDIA_API_KEY || process.env.VISION_API_KEY || HARDCODED_KEY,
-});
+// Primary chat client
+const chatClient = (nvidiaKey && !nvidiaKey.startsWith('gsk_')) ? nvidiaClient : groqClient;
+const chatModel  = (nvidiaKey && !nvidiaKey.startsWith('gsk_'))
+  ? (process.env.NVIDIA_CHAT_MODEL || 'nvidia/llama-3.1-nemotron-70b-instruct')
+  : (process.env.GROQ_CHAT_MODEL   || 'llama-3.1-8b-instant');
 
 // ─── Helper: non-streaming AI call ──────────────────────────────────────────
 async function aiComplete(messages, model = chatModel, maxTokens = 512) {
-  const resp = await chatClient.chat.completions.create({
-    model,
-    messages,
-    temperature: 0.5,
-    max_tokens: maxTokens,
-    stream: false,
-  });
-  return resp.choices?.[0]?.message?.content?.trim() || '';
+  try {
+    const resp = await chatClient.chat.completions.create({
+      model,
+      messages,
+      temperature: 0.5,
+      max_tokens: maxTokens,
+      stream: false,
+    });
+    return resp.choices?.[0]?.message?.content?.trim() || '';
+  } catch (err) {
+    console.warn('[aiComplete] Primary client failed, trying Groq fallback...', err.message);
+    if (groqKey) {
+      const fbResp = await groqClient.chat.completions.create({
+        model: 'llama-3.1-8b-instant',
+        messages,
+        temperature: 0.5,
+        max_tokens: maxTokens,
+        stream: false,
+      });
+      return fbResp.choices?.[0]?.message?.content?.trim() || '';
+    }
+    throw err;
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -556,82 +565,71 @@ app.post('/api/ai/chat', async (req, res) => {
     } catch(e) {}
 
 
-    // Retry logic for Groq rate limits (429)
-    const MAX_RETRIES = 2;
-    let lastErr = null;
+    // Function to stream from a given client and model
+    async function streamResponse(client, modelToUse) {
+      const stream = await client.chat.completions.create({
+        model: modelToUse,
+        messages,
+        temperature: 0.7,
+        max_tokens: 1024,
+        stream: true,
+      });
 
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-      try {
-        if (attempt > 0) {
-          console.log(`[Chat] Retry attempt ${attempt}/${MAX_RETRIES} after rate limit...`);
-          await new Promise(r => setTimeout(r, attempt * 1500)); // 1.5s, 3s backoff
-        }
-
-        // Vercel Serverless Functions don't support simple Express streaming 
-        if (process.env.VERCEL) {
-          const responseText = await aiComplete(messages, chatModel, 1024);
-          return res.send(responseText);
-        }
-
+      if (!res.headersSent) {
         res.setHeader('Content-Type', 'text/plain; charset=utf-8');
         res.setHeader('Transfer-Encoding', 'chunked');
         res.setHeader('Cache-Control', 'no-cache');
+      }
 
-        const stream = await chatClient.chat.completions.create({
-          model: chatModel,
-          messages,
-          temperature: 0.7,
-          max_tokens: 1024,
-          stream: true,
-        });
-
-        let fullAssistantResponse = '';
-        for await (const chunk of stream) {
-          const content = chunk.choices?.[0]?.delta?.content;
-          if (content) {
-            fullAssistantResponse += content;
-            res.write(content);
-          }
+      let fullAssistantResponse = '';
+      for await (const chunk of stream) {
+        const content = chunk.choices?.[0]?.delta?.content;
+        if (content) {
+          fullAssistantResponse += content;
+          res.write(content);
         }
-        res.end();
-        
+      }
+      res.end();
+
+      try {
+        safeInsert('messages', { role: 'assistant', content: fullAssistantResponse, type: 'chat', username: username || "unknown" }).catch(() => {});
+      } catch(e) {}
+    }
+
+    // Try Primary Client
+    try {
+      console.log(`[Chat] Querying primary model: ${chatModel}...`);
+      await streamResponse(chatClient, chatModel);
+      return;
+    } catch (primaryErr) {
+      console.warn('[Chat] Primary provider failed:', primaryErr.status || primaryErr.message);
+
+      // Attempt Fallback if headers haven't been sent
+      if (!res.headersSent) {
+        const fallbackClient = (chatClient === nvidiaClient && groqKey) ? groqClient : nvidiaClient;
+        const fallbackModel  = (fallbackClient === groqClient) ? 'llama-3.1-8b-instant' : 'nvidia/llama-3.1-nemotron-70b-instruct';
+
         try {
-          safeInsert('messages', { role: 'assistant', content: fullAssistantResponse, type: 'chat', username: username || "unknown" }).catch(() => {});
-        } catch(e) {}
-
-        return; // Success — exit the retry loop
-      } catch (err) {
-        lastErr = err;
-        if (err.status === 429 && attempt < MAX_RETRIES) {
-          continue; // Retry on rate limit
+          console.log(`[Chat] Attempting automatic failover to ${fallbackModel}...`);
+          await streamResponse(fallbackClient, fallbackModel);
+          return;
+        } catch (fallbackErr) {
+          console.error('[Chat] Fallback provider also failed:', fallbackErr.status || fallbackErr.message);
         }
-        break; // Non-retryable error or max retries reached
       }
     }
 
-    // All retries exhausted or non-retryable error
-    console.error('AI Chat Error:', lastErr?.message);
     if (!res.headersSent) {
-      const status = lastErr?.status || 500;
-      res.status(status).json({
-        error: 'Failed to get AI response',
-        fallback: status === 429
-          ? "I'm a bit busy right now — give me a few seconds and try again."
-          : "I'm having trouble connecting. Please try again.",
-      });
+      res.status(200).send("I'm having a brief connection issue with the cloud AI. Please check your API key in Render or try again in a moment.");
     } else {
       res.end();
     }
   } catch (outerErr) {
     console.error('AI Chat Error:', outerErr?.message);
     if (!res.headersSent) {
-      const status = outerErr?.status || 500;
-      res.status(status).json({
-        error: 'Failed to get AI response',
-        fallback: status === 429
-          ? "I'm a bit busy right now — give me a few seconds and try again."
-          : "I'm having trouble connecting. Please try again.",
-      });
+      res.status(200).send("I'm having trouble connecting to my AI brain. Please try again in a moment.");
+    } else {
+      res.end();
     }
   }
 });
