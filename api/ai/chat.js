@@ -419,7 +419,7 @@ Time: {TIMESTAMP}
         'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'meta/llama-3.3-70b-instruct',
+        model: 'deepseek-ai/deepseek-v4.1-flash',
         messages: messages,
         temperature: 0.7,
         max_tokens: 1024,

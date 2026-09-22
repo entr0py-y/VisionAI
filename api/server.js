@@ -490,7 +490,7 @@ function getActiveProviders() {
           baseURL: cleanBaseURL(process.env.GROQ_BASE_URL, 'https://api.groq.com/openai/v1'),
           apiKey: k,
         }),
-        model: process.env.GROQ_CHAT_MODEL || 'llama-3.1-8b-instant',
+        model: process.env.GROQ_CHAT_MODEL || 'openai/gpt-oss-20b',
       });
     } else if (k.startsWith('nvapi-')) {
       list.push({
@@ -499,7 +499,7 @@ function getActiveProviders() {
           baseURL: cleanBaseURL(process.env.NVIDIA_BASE_URL, 'https://integrate.api.nvidia.com/v1'),
           apiKey: k,
         }),
-        model: process.env.NVIDIA_CHAT_MODEL || 'nvidia/llama-3.1-nemotron-70b-instruct',
+        model: process.env.NVIDIA_CHAT_MODEL || 'nvidia/llama-3.1-nemotron-51b-instruct',
       });
     } else if (k.startsWith('sk-')) {
       list.push({
@@ -522,7 +522,7 @@ function getActiveProviders() {
           baseURL: 'https://api.groq.com/openai/v1',
           apiKey: groqKey,
         }),
-        model: 'llama-3.1-8b-instant',
+        model: 'openai/gpt-oss-20b',
       });
     }
     if (nvidiaKey) {
@@ -532,7 +532,7 @@ function getActiveProviders() {
           baseURL: 'https://integrate.api.nvidia.com/v1',
           apiKey: nvidiaKey,
         }),
-        model: 'nvidia/llama-3.1-nemotron-70b-instruct',
+        model: 'nvidia/llama-3.1-nemotron-51b-instruct',
       });
     }
   }
@@ -545,6 +545,12 @@ const visionClient = new OpenAI({
   baseURL: cleanBaseURL(process.env.VISION_BASE_URL, 'https://integrate.api.nvidia.com/v1'),
   apiKey:  nvidiaKey || HARDCODED_KEY,
 });
+
+// Log active providers at startup
+const startupProviders = getActiveProviders();
+console.log(`[AI Startup] Active providers (${startupProviders.length}):`);
+startupProviders.forEach((p, i) => console.log(`  [${i}] ${p.name} → model: ${p.model}, baseURL: ${p.client.baseURL}`));
+if (startupProviders.length === 0) console.warn('[AI Startup] ⚠️ NO AI PROVIDERS CONFIGURED — chat will return fallback message!');
 
 // ─── Helper: non-streaming AI call ──────────────────────────────────────────
 async function aiComplete(messages, modelOverride = null, maxTokens = 512) {
@@ -1356,8 +1362,14 @@ app.post('/api/pi/audio-input', emitHardwareStart, express.raw({ type: 'applicat
       const dateStr = now.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long', month: 'long', day: 'numeric' });
       
       const httpSensorCtx = buildSensorContext();
-      const chatPromise = groqClient.chat.completions.create({
-        model: 'llama-3.1-8b-instant',
+      const httpProviders = getActiveProviders();
+      const httpChatClient = httpProviders.length > 0 ? httpProviders[0].client : new OpenAI({
+        baseURL: 'https://api.groq.com/openai/v1',
+        apiKey: process.env.GROQ_API_KEY || HARDCODED_KEY,
+      });
+      const httpChatModel = httpProviders.length > 0 ? httpProviders[0].model : 'openai/gpt-oss-20b';
+      const chatPromise = httpChatClient.chat.completions.create({
+        model: httpChatModel,
         messages: [
           { role: 'system', content: VISION_PERSONA + `\n\nThe current time is ${timeStr}, ${dateStr}. Respond concisely (under 30 words). The user might call you 'Jenny' or other names — just respond helpfully. Current sensor readings:\n` + httpSensorCtx },
           { role: 'user', content: transcript }
@@ -1910,17 +1922,12 @@ function setupWebSocket(server) {
             safeInsert('messages', { role: 'user', content: transcript, type: 'voice', username: "hardware_user" }).catch(() => {});
 
             try {
-              const _p1 = "nvapi-S_iKSD-";
-              const _p2 = "CJDP6_l9TeApwME";
-              const _p3 = "OCNWtz4OqsTA_lAURNJ";
-              const _p4 = "t8edt_dRjqd3pW6htAYnc7_";
-              const HARDCODED_KEY = _p1 + _p2 + _p3 + _p4;
-              
-              const OpenAI = require('openai');
-              const wsClient = new OpenAI({
-                baseURL: process.env.GROQ_BASE_URL || 'https://api.groq.com/openai/v1',
-                apiKey:  process.env.GROQ_API_KEY || process.env.OPENAI_API_KEY || HARDCODED_KEY,
+              const wsProviders = getActiveProviders();
+              const wsChatClient = wsProviders.length > 0 ? wsProviders[0].client : new OpenAI({
+                baseURL: 'https://api.groq.com/openai/v1',
+                apiKey: process.env.GROQ_API_KEY || HARDCODED_KEY,
               });
+              const wsChatModel = wsProviders.length > 0 ? wsProviders[0].model : 'openai/gpt-oss-20b';
 
               const spatialContext = buildSensorContext();
               const modeNote = lastSensorMode === 'ALERT' ? '\n⚠️ SENSOR MODE: HIGH ALERT.' : '';
@@ -1929,8 +1936,8 @@ function setupWebSocket(server) {
               
               const systemPrompt = VISION_PERSONA + `\n\nThe current time is ${timeStr}. VOICE interaction — under 30 words.\n` + spatialContext + modeNote;
 
-              const chatCompletion = await wsClient.chat.completions.create({
-                model: 'llama-3.1-8b-instant',
+              const chatCompletion = await wsChatClient.chat.completions.create({
+                model: wsChatModel,
                 messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: transcript }],
                 temperature: 0.7,
                 max_tokens: 50,
