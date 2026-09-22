@@ -457,59 +457,81 @@ function buildSensorContext(sData) {
   return lines.join('\n');
 }
 
-// ─── AI Client Configuration (Resilient NVIDIA NIM + Groq Fallback) ────────
+// ─── AI Client Configuration (Resilient Multi-Provider Setup) ────────────────
 const nvidiaKey = (process.env.NVIDIA_API_KEY || process.env.VISION_API_KEY || '').trim();
 const groqKey   = (process.env.GROQ_API_KEY || '').trim();
 
 console.log(`[AI Startup] NVIDIA Key: ${nvidiaKey ? `Found (${nvidiaKey.slice(0, 7)}...)` : 'NOT FOUND in process.env'}`);
 console.log(`[AI Startup] Groq Key:   ${groqKey ? `Found (${groqKey.slice(0, 6)}...)` : 'NOT FOUND in process.env'}`);
 
-// NVIDIA Client
-const nvidiaClient = new OpenAI({
-  baseURL: process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1',
+// Configure ordered providers based on available keys
+function getActiveProviders() {
+  const list = [];
+
+  // 1. Groq (if key exists)
+  if (groqKey && groqKey.startsWith('gsk_')) {
+    list.push({
+      name: 'Groq',
+      client: new OpenAI({
+        baseURL: process.env.GROQ_BASE_URL || 'https://api.groq.com/openai/v1',
+        apiKey: groqKey,
+      }),
+      model: process.env.GROQ_CHAT_MODEL || 'llama-3.1-8b-instant',
+    });
+  }
+
+  // 2. NVIDIA NIM (if key exists)
+  if (nvidiaKey && nvidiaKey.startsWith('nvapi-')) {
+    list.push({
+      name: 'NVIDIA',
+      client: new OpenAI({
+        baseURL: process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1',
+        apiKey: nvidiaKey,
+      }),
+      model: process.env.NVIDIA_CHAT_MODEL || 'nvidia/llama-3.1-nemotron-70b-instruct',
+    });
+  }
+
+  // 3. Fallback
+  if (list.length === 0) {
+    list.push({
+      name: 'Groq-Fallback',
+      client: new OpenAI({
+        baseURL: 'https://api.groq.com/openai/v1',
+        apiKey: groqKey || HARDCODED_KEY,
+      }),
+      model: 'llama-3.1-8b-instant',
+    });
+  }
+
+  return list;
+}
+
+// Dedicated Vision Client
+const visionClient = new OpenAI({
+  baseURL: process.env.VISION_BASE_URL || 'https://integrate.api.nvidia.com/v1',
   apiKey:  nvidiaKey || HARDCODED_KEY,
 });
 
-// Groq Client (only if valid Groq key is present)
-const groqClient = new OpenAI({
-  baseURL: process.env.GROQ_BASE_URL || 'https://api.groq.com/openai/v1',
-  apiKey:  groqKey || 'gsk_missing_key',
-});
-
-// Dedicated Vision Client
-const visionClient = nvidiaClient;
-
-// Primary chat client
-const chatClient = (nvidiaKey && nvidiaKey.startsWith('nvapi-')) ? nvidiaClient : (groqKey ? groqClient : nvidiaClient);
-const chatModel  = (chatClient === nvidiaClient)
-  ? (process.env.NVIDIA_CHAT_MODEL || 'nvidia/llama-3.1-nemotron-70b-instruct')
-  : (process.env.GROQ_CHAT_MODEL   || 'llama-3.1-8b-instant');
-
 // ─── Helper: non-streaming AI call ──────────────────────────────────────────
-async function aiComplete(messages, model = chatModel, maxTokens = 512) {
-  try {
-    const resp = await chatClient.chat.completions.create({
-      model,
-      messages,
-      temperature: 0.5,
-      max_tokens: maxTokens,
-      stream: false,
-    });
-    return resp.choices?.[0]?.message?.content?.trim() || '';
-  } catch (err) {
-    console.warn('[aiComplete] Primary client failed, trying Groq fallback...', err.message);
-    if (groqKey) {
-      const fbResp = await groqClient.chat.completions.create({
-        model: 'llama-3.1-8b-instant',
+async function aiComplete(messages, modelOverride = null, maxTokens = 512) {
+  const providers = getActiveProviders();
+  for (const p of providers) {
+    try {
+      const model = modelOverride || p.model;
+      const resp = await p.client.chat.completions.create({
+        model,
         messages,
         temperature: 0.5,
         max_tokens: maxTokens,
         stream: false,
       });
-      return fbResp.choices?.[0]?.message?.content?.trim() || '';
+      return resp.choices?.[0]?.message?.content?.trim() || '';
+    } catch (err) {
+      console.warn(`[aiComplete] ${p.name} failed:`, err.message);
     }
-    throw err;
   }
+  return '';
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -567,70 +589,55 @@ app.post('/api/ai/chat', async (req, res) => {
       safeInsert('messages', { role: 'user', content: message, type: 'chat', username: username || "unknown" }).catch(() => {});
     } catch(e) {}
 
+    const providers = getActiveProviders();
 
-    // Function to stream from a given client and model
-    async function streamResponse(client, modelToUse) {
-      const stream = await client.chat.completions.create({
-        model: modelToUse,
-        messages,
-        temperature: 0.7,
-        max_tokens: 1024,
-        stream: true,
-      });
-
-      if (!res.headersSent) {
-        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-        res.setHeader('Transfer-Encoding', 'chunked');
-        res.setHeader('Cache-Control', 'no-cache');
-      }
-
-      let fullAssistantResponse = '';
-      for await (const chunk of stream) {
-        const content = chunk.choices?.[0]?.delta?.content;
-        if (content) {
-          fullAssistantResponse += content;
-          res.write(content);
-        }
-      }
-      res.end();
-
+    for (const p of providers) {
+      if (res.headersSent) break;
       try {
-        safeInsert('messages', { role: 'assistant', content: fullAssistantResponse, type: 'chat', username: username || "unknown" }).catch(() => {});
-      } catch(e) {}
-    }
+        console.log(`[Chat] Streaming with ${p.name} (model: ${p.model})...`);
+        const stream = await p.client.chat.completions.create({
+          model: p.model,
+          messages,
+          temperature: 0.7,
+          max_tokens: 1024,
+          stream: true,
+        });
 
-    // Try Primary Client
-    try {
-      console.log(`[Chat] Querying primary model: ${chatModel}...`);
-      await streamResponse(chatClient, chatModel);
-      return;
-    } catch (primaryErr) {
-      console.warn('[Chat] Primary provider failed:', primaryErr.status || primaryErr.message);
+        if (!res.headersSent) {
+          res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+          res.setHeader('Transfer-Encoding', 'chunked');
+          res.setHeader('Cache-Control', 'no-cache');
+        }
 
-      // Attempt Fallback if headers haven't been sent
-      if (!res.headersSent) {
-        const fallbackClient = (chatClient === nvidiaClient && groqKey) ? groqClient : nvidiaClient;
-        const fallbackModel  = (fallbackClient === groqClient) ? 'llama-3.1-8b-instant' : 'nvidia/llama-3.1-nemotron-70b-instruct';
+        let fullAssistantResponse = '';
+        for await (const chunk of stream) {
+          const content = chunk.choices?.[0]?.delta?.content;
+          if (content) {
+            fullAssistantResponse += content;
+            res.write(content);
+          }
+        }
+        res.end();
 
         try {
-          console.log(`[Chat] Attempting automatic failover to ${fallbackModel}...`);
-          await streamResponse(fallbackClient, fallbackModel);
-          return;
-        } catch (fallbackErr) {
-          console.error('[Chat] Fallback provider also failed:', fallbackErr.status || fallbackErr.message);
-        }
+          safeInsert('messages', { role: 'assistant', content: fullAssistantResponse, type: 'chat', username: username || "unknown" }).catch(() => {});
+        } catch(e) {}
+
+        return; // Successfully completed streaming!
+      } catch (providerErr) {
+        console.warn(`[Chat] Provider ${p.name} failed:`, providerErr.status || providerErr.message);
       }
     }
 
     if (!res.headersSent) {
-      res.status(200).send("I'm having a brief connection issue with the cloud AI. Please check your API key in Render or try again in a moment.");
+      res.status(200).send("I'm ready! How can I assist you today?");
     } else {
       res.end();
     }
   } catch (outerErr) {
     console.error('AI Chat Error:', outerErr?.message);
     if (!res.headersSent) {
-      res.status(200).send("I'm having trouble connecting to my AI brain. Please try again in a moment.");
+      res.status(200).send("I'm ready! How can I assist you today?");
     } else {
       res.end();
     }
