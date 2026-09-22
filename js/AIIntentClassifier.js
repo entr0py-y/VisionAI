@@ -75,7 +75,7 @@ const AIIntentClassifier = (() => {
    * Only catches OBVIOUS cases. Returns null if unsure.
    */
   function classifyByPattern(msg) {
-    const lower = msg.toLowerCase().trim();
+    const lower = msg; // msg is already normalized by classify()
 
     for (const p of VISION_PATTERNS) {
       if (p.test(lower)) return { intent: 'VISION', destination: null, confidence: 'pattern' };
@@ -130,16 +130,22 @@ const AIIntentClassifier = (() => {
   /**
    * Main classify — always resolves, never throws.
    */
-  async function classify(msg) {
-    if (!msg || typeof msg !== 'string' || msg.trim().length === 0) {
+  async function classify(rawMsg) {
+    if (!rawMsg || typeof rawMsg !== 'string' || rawMsg.trim().length === 0) {
       return { intent: 'GENERAL_CHAT', destination: null, confidence: 'empty' };
     }
+
+    // Normalize typos so patterns can match correctly
+    const msg = rawMsg.toLowerCase().trim()
+      .replace(/what'?s/g, 'what is')
+      .replace(/infront/g, 'in front')
+      .replace(/surounding/g, 'surrounding')
+      .replace(/wriotten/g, 'written');
 
     const patternResult = classifyByPattern(msg);
     if (patternResult) return patternResult;
 
-    const lower = msg.toLowerCase();
-    const hasSpatialHint = SPATIAL_HINT_WORDS.some(w => lower.includes(w));
+    const hasSpatialHint = SPATIAL_HINT_WORDS.some(w => msg.includes(w));
     if (!hasSpatialHint) {
       return { intent: 'GENERAL_CHAT', destination: null, confidence: 'fast' };
     }
