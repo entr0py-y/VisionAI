@@ -457,51 +457,84 @@ function buildSensorContext(sData) {
   return lines.join('\n');
 }
 
-// ─── AI Client Configuration (Resilient Multi-Provider Setup) ────────────────
-const nvidiaKey = (process.env.NVIDIA_API_KEY || process.env.VISION_API_KEY || '').trim();
-const groqKey   = (process.env.GROQ_API_KEY || '').trim();
+// ─── AI Client Configuration (Universal Key Auto-Detection) ─────────────────
+function cleanBaseURL(url, defaultUrl) {
+  if (!url || typeof url !== 'string') return defaultUrl;
+  return url.trim().replace(/\/chat\/completions\/?$/, '').replace(/\/completions\/?$/, '').replace(/\/$/, '') || defaultUrl;
+}
 
-console.log(`[AI Startup] NVIDIA Key: ${nvidiaKey ? `Found (${nvidiaKey.slice(0, 7)}...)` : 'NOT FOUND in process.env'}`);
-console.log(`[AI Startup] Groq Key:   ${groqKey ? `Found (${groqKey.slice(0, 6)}...)` : 'NOT FOUND in process.env'}`);
+const nvidiaKey = (process.env.NVIDIA_API_KEY || process.env.VISION_API_KEY || '').trim().replace(/^["']|["']$/g, '');
+const groqKey   = (process.env.GROQ_API_KEY || '').trim().replace(/^["']|["']$/g, '');
+const openaiKey = (process.env.OPENAI_API_KEY || '').trim().replace(/^["']|["']$/g, '');
 
-// Configure ordered providers based on available keys
+console.log(`[AI Startup] NVIDIA Key: ${nvidiaKey ? `Found (${nvidiaKey.slice(0, 7)}...)` : 'NOT SET'}`);
+console.log(`[AI Startup] Groq Key:   ${groqKey ? `Found (${groqKey.slice(0, 6)}...)` : 'NOT SET'}`);
+console.log(`[AI Startup] OpenAI Key: ${openaiKey ? `Found (${openaiKey.slice(0, 5)}...)` : 'NOT SET'}`);
+
 function getActiveProviders() {
   const list = [];
 
-  // 1. Groq (if key exists)
-  if (groqKey && groqKey.startsWith('gsk_')) {
-    list.push({
-      name: 'Groq',
-      client: new OpenAI({
-        baseURL: process.env.GROQ_BASE_URL || 'https://api.groq.com/openai/v1',
-        apiKey: groqKey,
-      }),
-      model: process.env.GROQ_CHAT_MODEL || 'llama-3.1-8b-instant',
-    });
+  // Check all available keys and match to their official endpoints
+  const allKeys = [
+    { key: groqKey, nameHint: 'Groq' },
+    { key: nvidiaKey, nameHint: 'NVIDIA' },
+    { key: openaiKey, nameHint: 'OpenAI' },
+  ].filter(item => Boolean(item.key));
+
+  for (const item of allKeys) {
+    const k = item.key;
+    if (k.startsWith('gsk_')) {
+      list.push({
+        name: 'Groq',
+        client: new OpenAI({
+          baseURL: cleanBaseURL(process.env.GROQ_BASE_URL, 'https://api.groq.com/openai/v1'),
+          apiKey: k,
+        }),
+        model: process.env.GROQ_CHAT_MODEL || 'llama-3.1-8b-instant',
+      });
+    } else if (k.startsWith('nvapi-')) {
+      list.push({
+        name: 'NVIDIA',
+        client: new OpenAI({
+          baseURL: cleanBaseURL(process.env.NVIDIA_BASE_URL, 'https://integrate.api.nvidia.com/v1'),
+          apiKey: k,
+        }),
+        model: process.env.NVIDIA_CHAT_MODEL || 'nvidia/llama-3.1-nemotron-70b-instruct',
+      });
+    } else if (k.startsWith('sk-')) {
+      list.push({
+        name: 'OpenAI',
+        client: new OpenAI({
+          baseURL: cleanBaseURL(process.env.OPENAI_BASE_URL, 'https://api.openai.com/v1'),
+          apiKey: k,
+        }),
+        model: process.env.OPENAI_CHAT_MODEL || 'gpt-4o-mini',
+      });
+    }
   }
 
-  // 2. NVIDIA NIM (if key exists)
-  if (nvidiaKey && nvidiaKey.startsWith('nvapi-')) {
-    list.push({
-      name: 'NVIDIA',
-      client: new OpenAI({
-        baseURL: process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1',
-        apiKey: nvidiaKey,
-      }),
-      model: process.env.NVIDIA_CHAT_MODEL || 'nvidia/llama-3.1-nemotron-70b-instruct',
-    });
-  }
-
-  // 3. Fallback
+  // Fallback if no prefix matched
   if (list.length === 0) {
-    list.push({
-      name: 'Groq-Fallback',
-      client: new OpenAI({
-        baseURL: 'https://api.groq.com/openai/v1',
-        apiKey: groqKey || HARDCODED_KEY,
-      }),
-      model: 'llama-3.1-8b-instant',
-    });
+    if (groqKey) {
+      list.push({
+        name: 'Groq-Generic',
+        client: new OpenAI({
+          baseURL: 'https://api.groq.com/openai/v1',
+          apiKey: groqKey,
+        }),
+        model: 'llama-3.1-8b-instant',
+      });
+    }
+    if (nvidiaKey) {
+      list.push({
+        name: 'NVIDIA-Generic',
+        client: new OpenAI({
+          baseURL: 'https://integrate.api.nvidia.com/v1',
+          apiKey: nvidiaKey,
+        }),
+        model: 'nvidia/llama-3.1-nemotron-70b-instruct',
+      });
+    }
   }
 
   return list;
@@ -509,7 +542,7 @@ function getActiveProviders() {
 
 // Dedicated Vision Client
 const visionClient = new OpenAI({
-  baseURL: process.env.VISION_BASE_URL || 'https://integrate.api.nvidia.com/v1',
+  baseURL: cleanBaseURL(process.env.VISION_BASE_URL, 'https://integrate.api.nvidia.com/v1'),
   apiKey:  nvidiaKey || HARDCODED_KEY,
 });
 
