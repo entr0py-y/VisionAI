@@ -468,7 +468,7 @@ const chatApiKey = process.env.NVIDIA_API_KEY || process.env.GROQ_API_KEY || HAR
 
 const chatModel = isNvidia
   ? (process.env.NVIDIA_CHAT_MODEL || 'moonshotai/kimi-k3')
-  : (process.env.GROQ_CHAT_MODEL || 'llama-3.3-70b-versatile');
+  : (process.env.GROQ_CHAT_MODEL || 'llama-3.1-8b-instant');
 
 // Groq client (for Whisper STT)
 const groqClient = new OpenAI({
