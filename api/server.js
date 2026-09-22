@@ -929,7 +929,7 @@ SENSOR DATA:
           });
 
           const primaryVisionResp = await groqVisionClient.chat.completions.create({
-            model: 'llama-3.2-11b-vision-preview',
+            model: 'llama-3.2-90b-vision-preview',
             messages: [
               {
                 role: 'user',
@@ -956,10 +956,11 @@ SENSOR DATA:
             content: description
           }).catch(err => console.error('Supabase vision insert error:', err));
           
-          return res.json({ description, model: 'llama-3.2-11b-vision', image: base64 });
+          return res.json({ description, model: 'llama-3.2-90b-vision', image: base64 });
         }
       } catch (visionErr) {
         console.error('[Vision] Groq Vision Model failed:', visionErr.status, visionErr.message);
+        return res.status(500).json({ error: 'Vision analysis failed', description: `I could not process the image. Error: ${visionErr.message}` });
       }
     }
 
@@ -972,7 +973,7 @@ SENSOR DATA:
 
     } catch (err) {
     console.error('Vision error:', err.message);
-    res.status(500).json({ error: 'Vision analysis failed', description: 'I could not analyse the scene. Please try again.' });
+    res.status(500).json({ error: 'Vision analysis failed', description: `I could not analyse the scene. Error: ${err.message}` });
   }
 });
 
