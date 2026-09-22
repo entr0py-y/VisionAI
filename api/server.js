@@ -984,8 +984,8 @@ SENSOR DATA (hardware truth — use this to confirm what you see):
 - Combined threat: ${s.dist > 0 && s.dist < 30 ? '🔴 DANGER — very close object' : (s.dist > 0 && s.dist < 50 ? '🟠 WARNING — object nearby' : '🟢 CLEAR')}`;
 
     const userInstruction = userPrompt
-      ? `The user asked: "${userPrompt}". Do a full spatial scan: what's CENTER, LEFT, RIGHT, on the GROUND, and give a PATH VERDICT.`
-      : 'Do a full spatial scan of this scene: what is CENTER (ahead), LEFT, RIGHT, on the GROUND, and is the PATH clear or blocked? Cover all zones, not just one object.';
+      ? `The user asked: "${userPrompt}". Answer their question directly based on the image. Keep it conversational, brief (1-3 sentences max), and focus only on what matters.`
+      : 'Describe what is directly in front of the user. Keep it natural, conversational, and brief (1-3 sentences max). Only mention hazards or interesting objects. Do not use structural labels.';
 
     // ── Try vision model if image supplied ──
     if (image) {
@@ -1008,7 +1008,7 @@ SENSOR DATA (hardware truth — use this to confirm what you see):
               },
             ],
             temperature: 0.2,
-            max_tokens: 600,
+            max_tokens: 150,
             stream: false,
           });
 
@@ -1044,7 +1044,7 @@ SENSOR DATA (hardware truth — use this to confirm what you see):
                   { role: 'system', content: visionSystemPrompt },
                   { role: 'user', content: [ { type: 'text', text: userInstruction }, { type: 'image_url', image_url: { url: base64 } } ] }
               ],
-              temperature: 0.2, max_tokens: 600, stream: false,
+              temperature: 0.2, max_tokens: 150, stream: false,
             });
             const fbDesc = fallbackResp.choices?.[0]?.message?.content?.trim();
             if (fbDesc) {
