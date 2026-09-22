@@ -55,6 +55,10 @@ const VisionController = (() => {
 
     await videoEl.play();
 
+    // Give the camera sensor time to adjust exposure and white balance
+    // Otherwise the first frame is almost always completely black
+    await new Promise(r => setTimeout(r, 1500));
+
     const width = videoEl.videoWidth || 1280;
     const height = videoEl.videoHeight || 720;
     const canvas = document.createElement('canvas');
