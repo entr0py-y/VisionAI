@@ -2020,10 +2020,8 @@
     <!-- Chat and Map Scripts -->
     <script>
       let currentUser = "User";
-      // ── DEPLOYMENT CONFIG — change this ONE line when you redeploy on Render ──
-      const RENDER_URL = "https://visionai-hig1.onrender.com"; // <-- update after new deploy
       const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.hostname.startsWith("192.168.");
-      window.VISION_AID_BACKEND_URL = isLocal ? "" : RENDER_URL;
+      window.VISION_AID_BACKEND_URL = isLocal ? "" : "https://visionai-hig1.onrender.com";
       window.getBackendUrl = function (path) {
         const base = (window.VISION_AID_BACKEND_URL || "").replace(/\/$/, "");
         if (!base) return path;
@@ -2585,12 +2583,6 @@
       // ===== VOICE INPUT — delegates to VoiceAssistantController =====
       let speechRecognition = null; // kept for compat
       function toggleVoiceInput() {
-        // ── Automatic fallback: if ESP32-MIC is offline, use phone mic ──
-        if (window._hwState && !window._hwState.micOnline) {
-          if (typeof window.startBrowserMic === 'function') window.startBrowserMic();
-          return;
-        }
-
         const controller =
           typeof VoiceAssistantController !== "undefined"
             ? VoiceAssistantController
@@ -3567,7 +3559,7 @@ function navSOS(el) {
     <!-- REAL-TIME GHOST CLICK PIPELINE (Physical Module To DOM Sink) -->
     <script>
       document.addEventListener("DOMContentLoaded", () => {
-         const backendUrl = localStorage.getItem("visionAidBackendUrl") || window.VISION_AID_BACKEND_URL || "https://visionai-hig1.onrender.com";
+         const backendUrl = localStorage.getItem("visionAidBackendUrl") || "https://visionai-hig1.onrender.com";
          try {
            const sse = new EventSource(`${backendUrl}/api/stream`);
            sse.onmessage = (event) => {
@@ -3623,153 +3615,27 @@ function navSOS(el) {
            console.log("Failed to map SSE pipeline.");
          }
 
-         // ─── HARDWARE HEALTH + BROWSER FALLBACK ───────────────────────
-         // Tracks ESP32 online state globally so any part of the UI can check it
-         window._hwState = { micOnline: false, camOnline: false };
-
-         // ── Phone mic fallback state ──
-         let _browserMicRecorder = null;
-         let _browserMicChunks  = [];
-         let _browserMicStream  = null;
-
-         // ── Phone camera fallback state ──
-         let _browserCamStream  = null;
-
-         // Called by AI Chat mic button when ESP32-MIC is offline
-         window.startBrowserMic = async function() {
-           const micBtn = document.getElementById('micBtn');
-           if (_browserMicRecorder && _browserMicRecorder.state === 'recording') {
-             // Second tap → stop
-             _browserMicRecorder.stop();
-             return;
-           }
-           try {
-             _browserMicStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-             _browserMicChunks = [];
-             _browserMicRecorder = new MediaRecorder(_browserMicStream);
-             _browserMicRecorder.ondataavailable = e => { if (e.data.size > 0) _browserMicChunks.push(e.data); };
-             _browserMicRecorder.onstop = async () => {
-               _browserMicStream.getTracks().forEach(t => t.stop());
-               if (micBtn) micBtn.classList.remove('recording');
-               const blob = new Blob(_browserMicChunks, { type: 'audio/webm' });
-               if (blob.size < 1000) return; // too short, ignore
-               const fd = new FormData();
-               fd.append('audio', blob, 'audio.webm');
-               try {
-                 await fetch(`${backendUrl}/api/pi/browser-audio`, { method: 'POST', body: fd });
-               } catch(e) { console.error('[BrowserMic] Upload failed', e); }
-             };
-             _browserMicRecorder.start();
-             if (micBtn) micBtn.classList.add('recording');
-           } catch(e) {
-             console.error('[BrowserMic] getUserMedia failed', e);
-             if (typeof addChatMessage === 'function')
-               addChatMessage('ai', 'Could not access your microphone. Please allow mic permission.');
-           }
-         };
-
-         // Capture one JPEG frame from phone/laptop camera and POST to /api/pi/image-input
-         window.captureBrowserCamera = async function() {
-           try {
-             _browserCamStream = await navigator.mediaDevices.getUserMedia({
-               video: { facingMode: { ideal: 'environment' }, width: { ideal: 640 }, height: { ideal: 480 } }
-             });
-             const video = document.createElement('video');
-             video.srcObject = _browserCamStream;
-             video.setAttribute('playsinline', '');
-             await video.play();
-             await new Promise(r => setTimeout(r, 400)); // let camera warm up
-
-             const canvas = document.createElement('canvas');
-             canvas.width  = video.videoWidth  || 640;
-             canvas.height = video.videoHeight || 480;
-             canvas.getContext('2d').drawImage(video, 0, 0);
-             _browserCamStream.getTracks().forEach(t => t.stop());
-
-             return new Promise(resolve => {
-               canvas.toBlob(async blob => {
-                 if (!blob) { resolve(null); return; }
-                 const fd = new FormData();
-                 fd.append('image', blob, 'capture.jpg');
-                 try {
-                   await fetch(`${backendUrl}/api/pi/image-input`, { method: 'POST', body: fd });
-                   resolve(true);
-                 } catch(e) { console.error('[BrowserCam] Upload failed', e); resolve(null); }
-               }, 'image/jpeg', 0.85);
-             });
-           } catch(e) {
-             console.error('[BrowserCam] getUserMedia failed', e);
-             return null;
-           }
-         };
-
-         // Update status tile labels to show fallback mode
-         function _updateHwBadges(micOnline, camOnline) {
-           const dotMicEl = document.getElementById('dotMic');
-           const dotCamEl = document.getElementById('dotCam');
-           const hwTile   = document.getElementById('hwStatusTile');
-           if (!hwTile) return;
-
-           // Mic badge
-           let micLabel = hwTile.querySelector('#_micLabel');
-           if (!micLabel) {
-             micLabel = document.createElement('span');
-             micLabel.id = '_micLabel';
-             micLabel.style.cssText = 'font-size:10px;opacity:0.65;margin-left:4px;';
-             if (dotMicEl && dotMicEl.parentElement) dotMicEl.parentElement.appendChild(micLabel);
-           }
-           micLabel.textContent = micOnline ? '' : '📱 phone mic';
-
-           // Cam badge
-           let camLabel = hwTile.querySelector('#_camLabel');
-           if (!camLabel) {
-             camLabel = document.createElement('span');
-             camLabel.id = '_camLabel';
-             camLabel.style.cssText = 'font-size:10px;opacity:0.65;margin-left:4px;';
-             if (dotCamEl && dotCamEl.parentElement) dotCamEl.parentElement.appendChild(camLabel);
-           }
-           camLabel.textContent = camOnline ? '' : '📱 phone cam';
-         }
-
-         // Patch the mic button: when ESP32 offline, use browser mic instead
-         function _patchMicButton(micOnline) {
-           const micBtn = document.getElementById('micBtn');
-           if (!micBtn) return;
-           if (micOnline) {
-             micBtn.onclick = () => toggleVoiceInput();
-             micBtn.title = 'Voice input (ESP32-MIC)';
-           } else {
-             micBtn.onclick = () => window.startBrowserMic();
-             micBtn.title = 'Voice input (phone mic fallback)';
-           }
-         }
-
-         // HARDWARE HEALTH DIAGNOSTIC POLL — runs every 2s
+         // HARDWARE HEALTH DIAGNOSTIC POLL
          setInterval(async () => {
            try {
              const resp = await fetch(`${backendUrl}/api/pi/health`);
              const data = await resp.json();
              const dotCam = document.getElementById('dotCam');
              const dotMic = document.getElementById('dotMic');
-
-             if (dotCam) { if (data.camOnline) dotCam.classList.add('online'); else dotCam.classList.remove('online'); }
-             if (dotMic) { if (data.micOnline) dotMic.classList.add('online'); else dotMic.classList.remove('online'); }
-
-             window._hwState.micOnline = data.micOnline;
-             window._hwState.camOnline = data.camOnline;
-             _updateHwBadges(data.micOnline, data.camOnline);
-             _patchMicButton(data.micOnline);
-           } catch(e) {
-             const dotCam = document.getElementById('dotCam');
-             const dotMic = document.getElementById('dotMic');
-             if (dotCam) dotCam.classList.remove('online');
-             if (dotMic) dotMic.classList.remove('online');
-             if (window._hwState.micOnline || window._hwState.camOnline) {
-               window._hwState.micOnline = false;
-               window._hwState.camOnline = false;
-               _updateHwBadges(false, false);
-               _patchMicButton(false);
+             
+             if (dotCam) {
+               if (data.camOnline) dotCam.classList.add("online");
+               else dotCam.classList.remove("online");
              }
+             if (dotMic) {
+               if (data.micOnline) dotMic.classList.add("online");
+               else dotMic.classList.remove("online");
+             }
+           } catch(e) {
+                const dotCam = document.getElementById('dotCam');
+                const dotMic = document.getElementById('dotMic');
+                if (dotCam) dotCam.classList.remove("online");
+                if (dotMic) dotMic.classList.remove("online");
            }
          }, 2000);
       });
