@@ -467,7 +467,7 @@ const chatBaseURL = isNvidia
 const chatApiKey = process.env.NVIDIA_API_KEY || process.env.GROQ_API_KEY || HARDCODED_KEY;
 
 const chatModel = isNvidia
-  ? (process.env.NVIDIA_CHAT_MODEL || 'deepseek-ai/deepseek-v4.1-flash')
+  ? (process.env.NVIDIA_CHAT_MODEL || 'nvidia/llama-3.1-nemotron-70b-instruct')
   : (process.env.GROQ_CHAT_MODEL || 'llama-3.1-8b-instant');
 
 // Groq client (for Whisper STT)
