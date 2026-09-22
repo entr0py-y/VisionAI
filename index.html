@@ -3498,43 +3498,9 @@ function navSOS(el) {
 
       // Load History Helper
       async function loadChatHistory() {
-        if (!currentUser) return;
-        try {
-          const histResp = await fetch(getBackendUrl(`/api/history?username=${encodeURIComponent(currentUser)}`));
-          if (histResp.ok) {
-            const history = await histResp.json();
-            
-            // clear the chat container but keep the first system message
-            let hContainer = document.getElementById('chatContainer'); 
-            if(hContainer) { 
-               const msgs = hContainer.querySelectorAll('.chat-msg:not(.sys-msg)'); 
-               msgs.forEach(m=>m.remove()); 
-            }
-            
-            // reset memory
-            if (typeof conversationHistory !== 'undefined') conversationHistory = [];
-
-            if (Array.isArray(history)) {
-              history.forEach(msg => {
-                if (msg.role && msg.content) {
-                  const uiRole = msg.role === 'assistant' ? 'ai' : msg.role;
-                  addChatMessage(uiRole, msg.content, new Date(msg.created_at));
-                  
-                  if (typeof conversationHistory !== 'undefined') {
-                    const histRole = msg.role === 'assistant' ? 'model' : msg.role;
-                    conversationHistory.push({ role: histRole, text: msg.content });
-                  }
-                }
-              });
-            }
-            
-            // scroll down
-            const container = document.getElementById("chatContainer");
-            if (container) container.scrollTop = container.scrollHeight;
-          }
-        } catch (err) {
-          console.error('[VisionAID] Failed to load history:', err);
-        }
+        // Disabled: User requested not to keep previous chat data on refresh
+        if (typeof conversationHistory !== 'undefined') conversationHistory = [];
+        return;
       }
 
       window.addEventListener('DOMContentLoaded', async () => {
