@@ -457,26 +457,26 @@ function buildSensorContext(sData) {
   return lines.join('\n');
 }
 
-// ─── Groq client (ONLY for Whisper STT) ────────────────────────────────────
+// ─── Groq client — used for STT AND chat (NVIDIA kimi-k2 was discontinued) ──
 const groqClient = new OpenAI({
   baseURL: process.env.GROQ_BASE_URL || 'https://api.groq.com/openai/v1',
   apiKey:  process.env.GROQ_API_KEY || HARDCODED_KEY,
 });
 
-// ─── NVIDIA chat client (Kimi-K2 — fast, free endpoint) ──────────────────────
+// ─── Chat client now points to Groq (llama-3.3-70b-versatile) ────────────────
 const chatClient = new OpenAI({
-  baseURL: 'https://integrate.api.nvidia.com/v1',
-  apiKey:  process.env.NVIDIA_API_KEY || HARDCODED_KEY,
+  baseURL: 'https://api.groq.com/openai/v1',
+  apiKey:  process.env.GROQ_API_KEY || HARDCODED_KEY,
 });
 
-// ─── Dedicated vision client (NVIDIA API — Llama 3.2 90B Vision) ─────────────
+// ─── Vision client stays on NVIDIA (Llama 3.2 90B Vision) ────────────────────
 const visionClient = new OpenAI({
   baseURL: process.env.VISION_BASE_URL || 'https://integrate.api.nvidia.com/v1',
   apiKey:  process.env.NVIDIA_API_KEY || process.env.VISION_API_KEY || HARDCODED_KEY,
 });
 
 // ─── Helper: non-streaming AI call ──────────────────────────────────────────
-async function aiComplete(messages, model = 'moonshotai/kimi-k2-instruct', maxTokens = 512) {
+async function aiComplete(messages, model = 'llama-3.3-70b-versatile', maxTokens = 512) {
   const resp = await chatClient.chat.completions.create({
     model,
     messages,
@@ -556,7 +556,7 @@ app.post('/api/ai/chat', async (req, res) => {
 
         // Vercel Serverless Functions don't support simple Express streaming 
         if (process.env.VERCEL) {
-          const responseText = await aiComplete(messages, 'moonshotai/kimi-k2-instruct', 1024);
+          const responseText = await aiComplete(messages, 'llama-3.3-70b-versatile', 1024);
           return res.send(responseText);
         }
 
@@ -565,7 +565,7 @@ app.post('/api/ai/chat', async (req, res) => {
         res.setHeader('Cache-Control', 'no-cache');
 
         const stream = await chatClient.chat.completions.create({
-          model: 'moonshotai/kimi-k2-instruct',
+          model: 'llama-3.3-70b-versatile',
           messages,
           temperature: 0.7,
           max_tokens: 1024,
