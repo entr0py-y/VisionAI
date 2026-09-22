@@ -931,11 +931,10 @@ SENSOR DATA:
           const primaryVisionResp = await groqVisionClient.chat.completions.create({
             model: 'llama-3.2-11b-vision-preview',
             messages: [
-              { role: 'system', content: visionSystemPrompt },
               {
                 role: 'user',
                 content: [
-                  { type: 'text', text: userInstruction },
+                  { type: 'text', text: visionSystemPrompt + '\n\n' + userInstruction },
                   { type: 'image_url', image_url: { url: base64 } },
                 ],
               },
