@@ -467,7 +467,7 @@ const chatBaseURL = isNvidia
 const chatApiKey = process.env.NVIDIA_API_KEY || process.env.GROQ_API_KEY || HARDCODED_KEY;
 
 const chatModel = isNvidia
-  ? (process.env.NVIDIA_CHAT_MODEL || 'moonshotai/kimi-k3')
+  ? (process.env.NVIDIA_CHAT_MODEL || 'deepseek-ai/deepseek-v4.1-flash')
   : (process.env.GROQ_CHAT_MODEL || 'llama-3.1-8b-instant');
 
 // Groq client (for Whisper STT)
@@ -983,7 +983,7 @@ SENSOR DATA (hardware truth — use this to confirm what you see):
           console.log('[Vision] Sending image to primary vision model (NVIDIA phi-4)...');
           
           const primaryVisionResp = await visionClient.chat.completions.create({
-            model: 'microsoft/phi-4-multimodal-instruct',
+            model: process.env.VISION_MODEL || 'meta/llama-3.2-11b-vision-instruct',
             messages: [
               { role: 'system', content: visionSystemPrompt },
               {
