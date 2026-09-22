@@ -2021,7 +2021,7 @@
     <script>
       let currentUser = "User";
       const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.hostname.startsWith("192.168.");
-      window.VISION_AID_BACKEND_URL = isLocal ? "" : "https://visionai-hig1.onrender.com";
+      window.VISION_AID_BACKEND_URL = isLocal ? "" : window.location.origin;
       window.getBackendUrl = function (path) {
         const base = (window.VISION_AID_BACKEND_URL || "").replace(/\/$/, "");
         if (!base) return path;
@@ -3559,7 +3559,7 @@ function navSOS(el) {
     <!-- REAL-TIME GHOST CLICK PIPELINE (Physical Module To DOM Sink) -->
     <script>
       document.addEventListener("DOMContentLoaded", () => {
-         const backendUrl = localStorage.getItem("visionAidBackendUrl") || "https://visionai-hig1.onrender.com";
+         const backendUrl = localStorage.getItem("visionAidBackendUrl") || window.location.origin;
          try {
            const sse = new EventSource(`${backendUrl}/api/stream`);
            sse.onmessage = (event) => {
