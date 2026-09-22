@@ -684,59 +684,20 @@ app.post('/api/ai/chat', async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// POST /api/ai/classify — Intent classification (rule-based, zero-latency, no LLM)
-// Body: { message: string, localIntent?: string }
+// POST /api/ai/classify — LLM-powered intent classification
+// Body: { message: string }
 // Response: { intent: 'VISION'|'NAVIGATION'|'LOCATION_INFO'|'PLACE_SEARCH'|'GENERAL_CHAT', destination: string|null }
 // ═══════════════════════════════════════════════════════════════════════════════
-app.post('/api/ai/classify', (req, res) => {
+app.post('/api/ai/classify', async (req, res) => {
   try {
-    const { message, localIntent } = req.body;
+    const { message } = req.body;
     if (!message) return res.status(400).json({ error: 'message required' });
 
-    // OPTIMIZED: Trust frontend local classifier if it returned a confident intent
-    const trustedIntents = ['VISION', 'NAVIGATION', 'LOCATION_INFO', 'PLACE_SEARCH', 'GENERAL_CHAT', 'SENSOR'];
-    if (localIntent && localIntent !== 'UNKNOWN' && trustedIntents.includes(localIntent)) {
-      console.log(`[Classify] Trusting localIntent: ${localIntent}`);
-      const mappedIntent = localIntent === 'SENSOR' ? 'GENERAL_CHAT' : localIntent;
-      return res.json({ intent: mappedIntent, destination: null, source: 'local' });
-    }
+    const lower = message.toLowerCase().trim();
 
-    let lower = message.toLowerCase().trim();
-    // Normalize common typos
-    lower = lower.replace(/what'?s/g, 'what is')
-                 .replace(/infront/g, 'in front')
-                 .replace(/wriotten/g, 'written')
-                 .replace(/surounding/g, 'surrounding');
+    // ── Quick pattern checks for ultra-obvious cases (no LLM needed) ──
 
-    // ── VISION ──────────────────────────────────────────────────────────────
-      const visionKw = ['what do i see', 'what is in front', 'what is around',
-        'describe my surroundings', 'what am i looking at', 'use camera',
-        'open camera', 'activate camera', 'scan', 'read the sign', 'read the text',
-        'read what is written', 'what is written in front of me', 'what is written here',
-        'use device camera input', 'device camera', 'inbuilt camera', 'built in camera', 'browser camera', 'webcam',
-        'identify', 'detect objects', 'object detection', 'what is this',
-        'what is that', 'tell me what you see'];
-      if (visionKw.some(k => lower.includes(k)) || /^(see|look|vision|scan|describe)$/i.test(lower)) {
-        return res.json({ intent: 'VISION', destination: null });
-      }
-
-    // ── SENSOR — physical proximity / spatial questions (NOT map searches) ──
-    // These MUST be caught before PLACE_SEARCH so "nearest object",
-    // "anything close", "how far" etc. route to sensors, never to GPS.
-    const sensorKw = [
-      'nearest object', 'nearest obstacle', 'close to me', 'anything close',
-      'something near', 'something close', 'is there something', 'anything near',
-      'how far', 'how close', 'am i near anything', 'is the path clear',
-      'path clear', 'obstacle', 'in front of me', 'behind me',
-      'to my left', 'to my right', 'what is ahead', 'anything ahead',
-      'is anything near', 'something moving', 'is something moving',
-      'movement near', 'anyone near', 'anyone close'
-    ];
-    if (sensorKw.some(k => lower.includes(k))) {
-      return res.json({ intent: 'GENERAL_CHAT', destination: null });
-    }
-
-    // ── NAVIGATION — only explicit action commands ────────────────────────
+    // Navigation — explicit action verbs
     const navPatterns = [
       /(?:navigate|navigation)\s+to\s+(.+)/i,
       /take\s+me\s+to\s+(.+)/i,
@@ -745,7 +706,6 @@ app.post('/api/ai/classify', (req, res) => {
       /route\s+to\s+(.+)/i,
       /lead\s+me\s+to\s+(.+)/i,
       /walk\s+me\s+to\s+(.+)/i,
-      /bring\s+me\s+to\s+(.+)/i,
       /i\s+(?:want|need)\s+to\s+(?:go|get|navigate|reach)\s+to\s+(.+)/i,
       /(?:go|head|get)\s+to\s+(.+)/i,
     ];
@@ -753,48 +713,73 @@ app.post('/api/ai/classify', (req, res) => {
       const m = message.match(p);
       if (m && m[1]) {
         const dest = m[1].replace(/[?.!,;]+$/, '').trim();
-        if (dest.length >= 2) return res.json({ intent: 'NAVIGATION', destination: dest });
+        if (dest.length >= 2) return res.json({ intent: 'NAVIGATION', destination: dest, source: 'pattern' });
       }
     }
 
-    // ── LOCATION_INFO — asking about current position ────────────────────
-    const locationInfoKw = ['where am i', 'my location', 'current location',
-      'my current location', 'what is my location', 'where are we',
-      'what city am i in', 'what area am i in'];
-    const isDistanceQuery = /how\s+far|distance|route|navigate|directions|where\s+is/i.test(lower);
-    if (!isDistanceQuery && locationInfoKw.some(k => lower.includes(k))) {
-      return res.json({ intent: 'LOCATION_INFO', destination: null });
+    // Location — asking about own position
+    const locationKw = ['where am i', 'my location', 'current location', 'what is my location', 'where are we'];
+    if (locationKw.some(k => lower.includes(k))) {
+      return res.json({ intent: 'LOCATION_INFO', destination: null, source: 'pattern' });
     }
 
-    // ── PLACE_SEARCH — nearby named places, not physical obstacles ────────
-    // Only match when the user names a real place type (hospital, cafe, etc.)
-    const placeSearchKw = [
-      'where is the', 'where is a', 'find a ', 'find the ',
-      'is there a ', 'is there an '
-    ];
-    // "nearest" / "closest" only trigger PLACE_SEARCH when followed by a named place
-    const namedPlaceAfterNearest = /(?:nearest|closest)\s+(hospital|school|pharmacy|market|station|airport|bus stop|temple|mosque|church|mall|park|restaurant|cafe|shop|police|bank|hotel|atm|clinic|office|store|supermarket|metro)/i;
-    const placePhraseMatch = namedPlaceAfterNearest.exec(lower);
-    if (placePhraseMatch) {
-      return res.json({ intent: 'PLACE_SEARCH', destination: placePhraseMatch[1].trim() });
-    }
-    if (placeSearchKw.some(k => lower.includes(k))) {
-      const pm = message.match(/(?:find\s+(?:a|the)?|where\s+is\s+(?:the|a|an)?)\s+(.+)/i);
-      let dest = pm ? pm[1] : null;
-      if (dest) {
-          dest = dest.replace(/\b(?:is\s+)?from\s+(?:my\s+location|here|me)\b/i, '')
-                     .replace(/[?.!,;]+$/, '')
-                     .trim();
-      }
-      return res.json({ intent: 'PLACE_SEARCH', destination: dest });
+    // Single-word vision commands
+    if (/^(see|look|vision|scan|describe|camera)$/i.test(lower)) {
+      return res.json({ intent: 'VISION', destination: null, source: 'pattern' });
     }
 
-    // ── GENERAL_CHAT fallback ─────────────────────────────────────────────
-    res.json({ intent: 'GENERAL_CHAT', destination: null });
+    // ── LLM classification for everything else ──
+    const providers = getActiveProviders();
+    if (providers.length === 0) {
+      // No AI available — fall back to GENERAL_CHAT
+      return res.json({ intent: 'GENERAL_CHAT', destination: null, source: 'fallback' });
+    }
+
+    const classifyPrompt = `You are an intent classifier for a wearable device for visually impaired users. The device has: a camera, sensors, GPS, and an AI chat assistant.
+
+Classify the user's message into EXACTLY ONE of these intents:
+- VISION — user wants to use the camera to see/read/identify something physically in front of them (e.g. "what is this", "read this sign", "describe what's around me", "what color is this shirt")
+- NAVIGATION — user wants directions to a place (e.g. "how do I get to the mall")
+- LOCATION_INFO — user wants to know their current location (e.g. "where am I right now")
+- PLACE_SEARCH — user wants to find a nearby place (e.g. "nearest hospital", "find a pharmacy")
+- GENERAL_CHAT — any general knowledge question, conversation, or anything that does NOT need the camera/GPS (e.g. "what is the capital of india", "tell me a joke", "how are you", "what time is it")
+
+IMPORTANT: If the user is asking a general knowledge question (facts, trivia, opinions, greetings), ALWAYS return GENERAL_CHAT even if it starts with "what is".
+Only return VISION if the user clearly wants to see/scan something PHYSICALLY in front of them using the camera.
+
+Reply with ONLY the intent name, nothing else.`;
+
+    try {
+      const p = providers[0];
+      const result = await Promise.race([
+        p.client.chat.completions.create({
+          model: p.model,
+          messages: [
+            { role: 'system', content: classifyPrompt },
+            { role: 'user', content: message }
+          ],
+          temperature: 0,
+          max_tokens: 10,
+          stream: false,
+        }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('classify_timeout')), 3000))
+      ]);
+
+      const raw = (result.choices?.[0]?.message?.content || '').trim().toUpperCase();
+      const validIntents = ['VISION', 'NAVIGATION', 'LOCATION_INFO', 'PLACE_SEARCH', 'GENERAL_CHAT'];
+      const intent = validIntents.find(i => raw.includes(i)) || 'GENERAL_CHAT';
+      
+      console.log(`[Classify] LLM: "${message}" → ${intent} (raw: ${raw})`);
+      return res.json({ intent, destination: null, source: 'llm' });
+
+    } catch (llmErr) {
+      console.warn(`[Classify] LLM failed (${llmErr.message}), defaulting to GENERAL_CHAT`);
+      return res.json({ intent: 'GENERAL_CHAT', destination: null, source: 'fallback' });
+    }
 
   } catch (err) {
     console.error('Classify error:', err.message);
-    res.json({ intent: 'GENERAL_CHAT', destination: null });
+    res.json({ intent: 'GENERAL_CHAT', destination: null, source: 'error' });
   }
 });
 

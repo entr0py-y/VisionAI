@@ -202,7 +202,9 @@ const AIIntentClassifier = (() => {
 
   /**
    * Main classify function — always resolves, never throws.
-   * OPTIMIZED: Uses local pre-classifier to skip API call for ~80% of queries
+   * Strategy:
+   *   1. Pattern matching for obvious commands (navigate, where am I) — instant
+   *   2. Everything else → server LLM classification (reads the sentence properly)
    * @param {string} msg
    * @returns {Promise<{intent: string, destination: string|null, confidence: string}>}
    */
@@ -211,22 +213,12 @@ const AIIntentClassifier = (() => {
       return { intent: 'GENERAL_CHAT', destination: null, confidence: 'empty' };
     }
 
-    // Fast pass: local pattern match (zero-latency)
+    // Fast pass: local pattern match for obvious commands (zero-latency)
     const patternResult = classifyByPattern(msg);
     if (patternResult) return patternResult;
 
-    // OPTIMIZED: Local keyword pre-classifier — skip API if confident
-    const localIntent = classifyIntentLocally(msg);
-    if (localIntent !== 'UNKNOWN') {
-      // Map local intents to system intents
-      const intentMap = { 'SENSOR': 'GENERAL_CHAT', 'VISION': 'VISION', 'LOCATION': 'LOCATION_INFO' };
-      const mapped = intentMap[localIntent] || 'GENERAL_CHAT';
-      console.log(`[AIIntentClassifier] Local pre-classifier: ${localIntent} → ${mapped}`);
-      return { intent: mapped, destination: null, confidence: 'local' };
-    }
-
-    // Fallback: server rule-based classify (with 5 s timeout) — sends localIntent hint
-    return await classifyByAPI(msg, localIntent);
+    // Everything else → server AI classification (reads the actual sentence)
+    return await classifyByAPI(msg);
   }
 
   return { classify, classifyByPattern, classifyIntentLocally, extractDestination };
