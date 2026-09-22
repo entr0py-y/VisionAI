@@ -3084,13 +3084,13 @@
                 .filter(h => h.text.length > 0)
             : [];
 
-          // ── 12-second hard timeout — if NVIDIA hangs, fail fast ──
+          // ── 45-second timeout to handle Render cold-starts gracefully ──
           if (window.currentChatAbortCtrl) {
-            try { window.currentChatAbortCtrl.abort(); } catch(e) {}
+            try { window.currentChatAbortCtrl.abort('superseded_by_new_message'); } catch(e) {}
           }
           const abortCtrl = new AbortController();
           window.currentChatAbortCtrl = abortCtrl;
-          const chatTimer = setTimeout(() => abortCtrl.abort(), 30000);
+          const chatTimer = setTimeout(() => abortCtrl.abort('chat_timeout'), 45000);
 
           const response = await fetch(getBackendUrl("/api/ai/chat"), {
             method: "POST",

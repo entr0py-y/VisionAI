@@ -174,7 +174,7 @@ const AIIntentClassifier = (() => {
   async function classifyByAPI(msg, localIntent) {
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 5000);
+      const timer = setTimeout(() => controller.abort('classify_timeout'), 12000);
       const resp = await fetch(getBackendUrl('/api/ai/classify'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
