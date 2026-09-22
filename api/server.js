@@ -458,8 +458,11 @@ function buildSensorContext(sData) {
 }
 
 // ─── AI Client Configuration (Resilient NVIDIA NIM + Groq Fallback) ────────
-const nvidiaKey = process.env.NVIDIA_API_KEY || process.env.VISION_API_KEY;
-const groqKey   = process.env.GROQ_API_KEY;
+const nvidiaKey = (process.env.NVIDIA_API_KEY || process.env.VISION_API_KEY || '').trim();
+const groqKey   = (process.env.GROQ_API_KEY || '').trim();
+
+console.log(`[AI Startup] NVIDIA Key: ${nvidiaKey ? `Found (${nvidiaKey.slice(0, 7)}...)` : 'NOT FOUND in process.env'}`);
+console.log(`[AI Startup] Groq Key:   ${groqKey ? `Found (${groqKey.slice(0, 6)}...)` : 'NOT FOUND in process.env'}`);
 
 // NVIDIA Client
 const nvidiaClient = new OpenAI({
@@ -467,18 +470,18 @@ const nvidiaClient = new OpenAI({
   apiKey:  nvidiaKey || HARDCODED_KEY,
 });
 
-// Groq Client
+// Groq Client (only if valid Groq key is present)
 const groqClient = new OpenAI({
   baseURL: process.env.GROQ_BASE_URL || 'https://api.groq.com/openai/v1',
-  apiKey:  groqKey || HARDCODED_KEY,
+  apiKey:  groqKey || 'gsk_missing_key',
 });
 
 // Dedicated Vision Client
 const visionClient = nvidiaClient;
 
 // Primary chat client
-const chatClient = (nvidiaKey && !nvidiaKey.startsWith('gsk_')) ? nvidiaClient : groqClient;
-const chatModel  = (nvidiaKey && !nvidiaKey.startsWith('gsk_'))
+const chatClient = (nvidiaKey && nvidiaKey.startsWith('nvapi-')) ? nvidiaClient : (groqKey ? groqClient : nvidiaClient);
+const chatModel  = (chatClient === nvidiaClient)
   ? (process.env.NVIDIA_CHAT_MODEL || 'nvidia/llama-3.1-nemotron-70b-instruct')
   : (process.env.GROQ_CHAT_MODEL   || 'llama-3.1-8b-instant');
 
