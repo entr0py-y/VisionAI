@@ -79,7 +79,12 @@ const AIIntentClassifier = (() => {
     'front', 'behind', 'left', 'right', 'moving', 'path', 'clear', 'stop'
   ];
   const LOCAL_VISION_KEYWORDS = [
-    'see', 'look', 'what is', 'describe', 'read', 'currency', 'text', 'sign'
+    'what is this', 'what is that', 'what is in front', 'what am i looking at',
+    'what do i see', 'look at', 'describe this', 'describe that',
+    'read this', 'read that', 'read the sign', 'read the text', 'read the label',
+    'scan', 'use camera', 'open camera', 'take a photo',
+    'what color', 'what colour', 'identify this', 'detect',
+    'currency', 'tell me what you see', 'my surroundings'
   ];
   const LOCAL_LOCATION_KEYWORDS = [
     'where am i', 'location', 'navigate', 'directions', 'how do i get'
