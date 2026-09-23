@@ -923,9 +923,17 @@ SENSOR DATA:
       try {
           console.log('[Vision] Sending image to Groq vision model...');
           
+          const providedKeys = (req.headers['x-ai-keys'] || '').split(',');
+          const userGroqKey = providedKeys.find(k => k.trim().startsWith('gsk_'))?.trim();
+          const finalGroqKey = userGroqKey || groqKey;
+
+          if (!finalGroqKey) {
+            return res.status(401).json({ error: 'Unauthorized', description: 'Groq API Key is missing. Please add it in Settings.' });
+          }
+
           const groqVisionClient = new OpenAI({
             baseURL: 'https://api.groq.com/openai/v1',
-            apiKey: process.env.GROQ_API_KEY
+            apiKey: finalGroqKey
           });
 
           const primaryVisionResp = await groqVisionClient.chat.completions.create({

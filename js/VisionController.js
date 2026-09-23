@@ -162,7 +162,10 @@ const VisionController = (() => {
       const image = await captureDeviceCameraFrame();
       const resp = await fetch(getBackendUrl('/api/vision'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-ai-keys': localStorage.getItem('aiApiKeys') || ''
+        },
         body: JSON.stringify({
           image,
           prompt: userPrompt || '',
@@ -170,7 +173,10 @@ const VisionController = (() => {
           username: localStorage.getItem('visionAidUsername') || 'unknown',
         }),
       });
-      if (!resp.ok) throw new Error('Device camera analysis failed');
+      if (!resp.ok) {
+        const errData = await resp.json().catch(() => ({}));
+        throw new Error(errData.description || errData.error || 'Device camera analysis failed');
+      }
       const data = await resp.json();
       const description = data.description || 'I could not analyse the device camera image.';
       const capturedImage = data.image || image || null;
