@@ -36,15 +36,36 @@
         --shadow-sm: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02);
         --shadow-md: 0 4px 12px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.04);
         --shadow-md: 0 4px 12px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.04);
+        --shadow-md: 0 4px 12px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.04);
       }
 
-      html.dark-mode {
-        filter: invert(1) hue-rotate(180deg);
+      html.dark-mode body {
+        background: linear-gradient(to bottom, #111111 0%, #222222 100%);
+        color: #ffffff;
       }
-      
-      html.dark-mode img, 
-      html.dark-mode video {
-        filter: invert(1) hue-rotate(180deg);
+      html.dark-mode .widget-card,
+      html.dark-mode .modal-panel,
+      html.dark-mode .device-status-item,
+      html.dark-mode .auth-modal {
+        background: #1c1c1e;
+        color: #ffffff;
+      }
+      html.dark-mode .modal-section,
+      html.dark-mode .auth-modal .auth-title {
+        color: #ffffff;
+      }
+      html.dark-mode .toggle-row,
+      html.dark-mode .slider-row,
+      html.dark-mode .info-row {
+        border-bottom-color: rgba(255,255,255,0.1);
+      }
+      html.dark-mode .home-header {
+        background: #111111;
+      }
+      html.dark-mode .auth-modal input {
+        background: rgba(255,255,255,0.05);
+        color: #ffffff;
+        border-color: rgba(255,255,255,0.1);
       }
 
       html,
@@ -118,13 +139,13 @@
         color: #fff;
       }
       .home-greeting {
-        font-size: 13px;
+        font-size: 11px;
         color: rgba(255, 255, 255, 0.6);
         font-weight: 400;
         margin-bottom: 2px;
       }
       .home-username {
-        font-size: 18px;
+        font-size: 16px;
         font-weight: 600;
         color: #ffffff;
         letter-spacing: -0.2px;
@@ -1824,7 +1845,7 @@
         },
         {
           id: "personalization",
-          title: "Adaptive Personalization",
+          title: "Settings",
           desc: "Custom preferences & profiles",
           icon: '<svg viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>',
           features: [
@@ -2514,36 +2535,12 @@
         return `
 <div class="modal-section">
 <div class="toggle-row">
-<span class="toggle-label">Alert Sensitivity</span>
-<div class="toggle-switch on" onclick="toggleSwitch(this)"><div class="toggle-knob"></div></div>
-</div>
-<div class="toggle-row">
 <span class="toggle-label">Full Screen</span>
 <div class="toggle-switch ${document.fullscreenElement ? 'on' : ''}" onclick="toggleFullScreen(this)"><div class="toggle-knob"></div></div>
 </div>
 <div class="toggle-row">
 <span class="toggle-label">Dark Mode</span>
 <div class="toggle-switch ${document.documentElement.classList.contains('dark-mode') ? 'on' : ''}" onclick="toggleDarkMode(this)"><div class="toggle-knob"></div></div>
-</div>
-<div class="slider-row">
-<div class="slider-header">
-<span class="slider-label">Speech Speed</span>
-<span class="slider-value" id="speechVal">1.0x</span>
-</div>
-<div class="slider-track" id="speechSlider">
-<div class="slider-fill" style="width:50%"></div>
-<div class="slider-thumb" style="left:50%"></div>
-</div>
-</div>
-<div class="slider-row">
-<div class="slider-header">
-<span class="slider-label">Haptic Intensity</span>
-<span class="slider-value" id="hapticVal">70%</span>
-</div>
-<div class="slider-track" id="hapticSlider">
-<div class="slider-fill" style="width:70%"></div>
-<div class="slider-thumb" style="left:70%"></div>
-</div>
 </div>
 </div>`;
       }
