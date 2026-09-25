@@ -130,7 +130,6 @@ void setup() {
   // 3. OPTIMIZED: Connect to server via WebSocket (same path as ESP32-MIC)
   // setInsecure() skips SSL cert verification — required for Render's rotating certs
   webSocket.beginSSL(serverIp, serverPort, "/api/pi/ws");
-  webSocket.setInsecure();
   webSocket.onEvent(webSocketEvent);
   webSocket.setReconnectInterval(5000);
   Serial.println("[WS-CAM] WebSocket client started, waiting for connection...");
