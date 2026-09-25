@@ -2495,8 +2495,8 @@
 <div class="toggle-switch on" onclick="toggleSwitch(this)"><div class="toggle-knob"></div></div>
 </div>
 <div class="toggle-row">
-<span class="toggle-label">Location Learning</span>
-<div class="toggle-switch" onclick="toggleSwitch(this)"><div class="toggle-knob"></div></div>
+<span class="toggle-label">Full Screen</span>
+<div class="toggle-switch ${document.fullscreenElement ? 'on' : ''}" onclick="toggleFullScreen(this)"><div class="toggle-knob"></div></div>
 </div>
 <div class="toggle-row">
 <span class="toggle-label">Energy Saver Mode</span>
@@ -2976,6 +2976,29 @@
 
       function toggleSwitch(el) {
         el.classList.toggle("on");
+      }
+
+      function toggleFullScreen(el) {
+        const willBeFull = !el.classList.contains("on");
+        const docElm = document.documentElement;
+        
+        try {
+          if (willBeFull) {
+            if (docElm.requestFullscreen) docElm.requestFullscreen();
+            else if (docElm.webkitRequestFullscreen) docElm.webkitRequestFullscreen();
+            else if (docElm.webkitRequestFullScreen) docElm.webkitRequestFullScreen();
+            else if (docElm.msRequestFullscreen) docElm.msRequestFullscreen();
+            el.classList.add("on");
+          } else {
+            if (document.exitFullscreen) document.exitFullscreen();
+            else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+            else if (document.webkitCancelFullScreen) document.webkitCancelFullScreen();
+            else if (document.msExitFullscreen) document.msExitFullscreen();
+            el.classList.remove("on");
+          }
+        } catch(e) {
+          console.error("Fullscreen API error:", e);
+        }
       }
 
       function initSliders() {
