@@ -77,6 +77,16 @@
       .home-header:active {
         transform: scale(0.97);
       }
+      body.is-fullscreen .home-header {
+        border-radius: 0;
+        margin-top: -4px;
+        margin-left: -12px;
+        margin-right: -12px;
+        margin-bottom: 12px;
+      }
+      body.is-fullscreen .home-header:active {
+        transform: none;
+      }
       .home-header-left {
         display: flex;
         align-items: center;
@@ -3000,6 +3010,17 @@
           console.error("Fullscreen API error:", e);
         }
       }
+
+      ['fullscreenchange', 'webkitfullscreenchange', 'mozfullscreenchange', 'MSFullscreenChange'].forEach(eventName => {
+        document.addEventListener(eventName, () => {
+          const isFull = !!(document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement);
+          document.body.classList.toggle('is-fullscreen', isFull);
+          
+          // Sync toggle visually if triggered by escape key
+          const toggle = document.querySelector('.toggle-switch[onclick="toggleFullScreen(this)"]');
+          if (toggle) toggle.classList.toggle('on', isFull);
+        });
+      });
 
       function initSliders() {
         document.querySelectorAll(".slider-track").forEach((track) => {
