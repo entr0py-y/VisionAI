@@ -702,7 +702,7 @@
         top: 50%;
         left: 50%;
         transform: translate(-50%, -50%) scale(0.95);
-        background: #1a1a1a;
+        background: #ffffff;
         width: 90%;
         max-width: 340px;
         border-radius: 24px;
@@ -711,8 +711,8 @@
         opacity: 0;
         pointer-events: none;
         transition: all var(--transition);
-        box-shadow: 0 12px 40px rgba(0,0,0,0.3);
-        border: 1px solid rgba(255,255,255,0.05);
+        box-shadow: 0 12px 40px rgba(0,0,0,0.15);
+        border: 1px solid rgba(0,0,0,0.05);
       }
       .auth-modal.active {
         opacity: 1;
@@ -720,21 +720,21 @@
         pointer-events: auto;
       }
       .auth-modal h2 {
-        color: #fff;
+        color: #000000;
         font-size: 22px;
         font-weight: 600;
         margin-bottom: 4px;
         text-align: center;
       }
       .auth-modal p {
-        color: var(--muted);
+        color: #555555;
         font-size: 13px;
         text-align: center;
         margin-bottom: 24px;
       }
       .auth-tabs {
         display: flex;
-        background: rgba(255,255,255,0.05);
+        background: rgba(0,0,0,0.05);
         border-radius: 12px;
         padding: 4px;
         margin-bottom: 20px;
@@ -745,38 +745,41 @@
         padding: 8px;
         font-size: 13px;
         font-weight: 500;
-        color: var(--muted);
+        color: #555555;
         border-radius: 10px;
         cursor: pointer;
         transition: all var(--transition);
       }
       .auth-tab.active {
-        background: #fff;
-        color: #000;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        background: #000000;
+        color: #ffffff;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
       }
       .auth-modal input {
         width: 100%;
         padding: 14px 16px;
         border-radius: 12px;
-        border: 1px solid rgba(255,255,255,0.1);
-        background: rgba(0,0,0,0.2);
-        color: #fff;
+        border: 1px solid rgba(0,0,0,0.1);
+        background: #f5f5f5;
+        color: #000000;
         font-size: 14px;
         margin-bottom: 12px;
         outline: none;
         transition: border-color var(--transition);
       }
+      .auth-modal input::placeholder {
+        color: #888888;
+      }
       .auth-modal input:focus {
-        border-color: rgba(255,255,255,0.3);
+        border-color: rgba(0,0,0,0.3);
       }
       .auth-modal button {
         width: 100%;
         padding: 14px;
         border-radius: 12px;
         border: none;
-        background: #fff;
-        color: #000;
+        background: #000000;
+        color: #ffffff;
         font-weight: 600;
         font-size: 15px;
         cursor: pointer;
@@ -1700,8 +1703,7 @@
         <div class="auth-tab" id="tabSignUp" onclick="switchAuthTab('signup')">Sign Up</div>
       </div>
 
-      <input type="text" id="authUsername" placeholder="Username" style="display: none;" />
-      <input type="email" id="authEmail" placeholder="Email Address" />
+      <input type="text" id="authUsername" placeholder="Username" />
       <input type="password" id="authPass" placeholder="Password" />
       
       <div id="authError" style="color: var(--danger); font-size: 12px; margin-bottom: 12px; text-align: center; display: none;"></div>
@@ -2575,20 +2577,18 @@
         document.getElementById("tabSignIn").classList.toggle("active", !isSignUp);
         document.getElementById("tabSignUp").classList.toggle("active", isSignUp);
         
-        document.getElementById("authUsername").style.display = isSignUp ? "block" : "none";
         document.getElementById("authSubmitBtn").textContent = isSignUp ? "Create Account" : "Sign In";
         document.getElementById("authSubtitle").textContent = isSignUp ? "Create a new account" : "Sign in to Vision AID";
         document.getElementById("authError").style.display = 'none';
       }
 
       async function doAuth() {
-        const email = document.getElementById('authEmail').value;
-        const password = document.getElementById('authPass').value;
         const username = document.getElementById('authUsername').value;
+        const password = document.getElementById('authPass').value;
         const errDiv = document.getElementById('authError');
         const btn = document.getElementById('authSubmitBtn');
         
-        if(!email || !password || (authMode === 'signup' && !username)) {
+        if(!username || !password) {
            errDiv.textContent = "Please fill in all fields.";
            errDiv.style.display = 'block';
            return;
@@ -2599,8 +2599,7 @@
 
         try {
           const endpoint = authMode === 'signup' ? '/api/auth/signup' : '/api/auth/login';
-          const payload = { email, password };
-          if(authMode === 'signup') payload.username = username;
+          const payload = { username, password };
 
           const res = await fetch(endpoint, {
             method: 'POST',
@@ -2616,7 +2615,7 @@
           } else {
             // Success
             document.getElementById('homeGreeting').textContent = "Welcome back,";
-            document.getElementById('homeUsername').textContent = data.name || email.split('@')[0];
+            document.getElementById('homeUsername').textContent = data.name || username;
             const actionBtn = document.getElementById('authActionBtn');
             actionBtn.textContent = "Logout";
             actionBtn.onclick = () => {

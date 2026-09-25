@@ -581,13 +581,15 @@ app.post('/api/auth/login', async (req, res) => {
     const { supabase } = require('../lib/supabaseClient.cjs');
     if (!supabase) return res.status(500).json({ error: 'Supabase not configured' });
     
-    const { email, password } = req.body;
-    if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
+    const { username, password } = req.body;
+    if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+
+    const email = `${username}@visionaid.local`;
 
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) return res.status(401).json({ error: error.message });
 
-    let userName = email.split('@')[0];
+    let userName = username;
     
     // Attempt to get profile data
     try {
@@ -611,8 +613,10 @@ app.post('/api/auth/signup', async (req, res) => {
     const { supabase } = require('../lib/supabaseClient.cjs');
     if (!supabase) return res.status(500).json({ error: 'Supabase not configured' });
     
-    const { email, password, username } = req.body;
-    if (!email || !password || !username) return res.status(400).json({ error: 'Email, password, and username required' });
+    const { username, password } = req.body;
+    if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+
+    const email = `${username}@visionaid.local`;
 
     const { data, error } = await supabase.auth.signUp({ email, password });
     if (error) return res.status(400).json({ error: error.message });
