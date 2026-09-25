@@ -58,7 +58,7 @@
       }
 
       .app-container {
-        padding: 4px 12px;
+        padding: calc(24px + env(safe-area-inset-top)) 16px 8px;
       }
 
       /* ─── HEADER ─── */
@@ -551,7 +551,7 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 8px 12px;
+        padding: 16px 14px;
       }
       .device-status-item + .device-status-item {
         border-top: 1px solid var(--divider);
