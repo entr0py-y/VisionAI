@@ -35,7 +35,10 @@ const VisionController = (() => {
     }
 
     await stopStream();
-    stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' } },
+      audio: false
+    });
 
     videoEl = document.createElement('video');
     videoEl.autoplay = true;
