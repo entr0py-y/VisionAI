@@ -2557,7 +2557,82 @@
 </div>`;
       }
 
+      let authMode = 'signin';
+      
+      function openAuthModal() {
+        document.getElementById("authOverlay").classList.add("active");
+        document.getElementById("authModal").classList.add("active");
+      }
+      
+      function closeAuthModal() {
+        document.getElementById("authOverlay").classList.remove("active");
+        document.getElementById("authModal").classList.remove("active");
+      }
 
+      function switchAuthTab(mode) {
+        authMode = mode;
+        const isSignUp = mode === 'signup';
+        document.getElementById("tabSignIn").classList.toggle("active", !isSignUp);
+        document.getElementById("tabSignUp").classList.toggle("active", isSignUp);
+        
+        document.getElementById("authUsername").style.display = isSignUp ? "block" : "none";
+        document.getElementById("authSubmitBtn").textContent = isSignUp ? "Create Account" : "Sign In";
+        document.getElementById("authSubtitle").textContent = isSignUp ? "Create a new account" : "Sign in to Vision AID";
+        document.getElementById("authError").style.display = 'none';
+      }
+
+      async function doAuth() {
+        const email = document.getElementById('authEmail').value;
+        const password = document.getElementById('authPass').value;
+        const username = document.getElementById('authUsername').value;
+        const errDiv = document.getElementById('authError');
+        const btn = document.getElementById('authSubmitBtn');
+        
+        if(!email || !password || (authMode === 'signup' && !username)) {
+           errDiv.textContent = "Please fill in all fields.";
+           errDiv.style.display = 'block';
+           return;
+        }
+
+        btn.textContent = authMode === 'signup' ? "Creating..." : "Logging in...";
+        errDiv.style.display = 'none';
+
+        try {
+          const endpoint = authMode === 'signup' ? '/api/auth/signup' : '/api/auth/login';
+          const payload = { email, password };
+          if(authMode === 'signup') payload.username = username;
+
+          const res = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          const data = await res.json();
+          
+          if (data.error) {
+            errDiv.textContent = data.error;
+            errDiv.style.display = 'block';
+            btn.textContent = authMode === 'signup' ? "Create Account" : "Sign In";
+          } else {
+            // Success
+            document.getElementById('homeGreeting').textContent = "Welcome back,";
+            document.getElementById('homeUsername').textContent = data.name || email.split('@')[0];
+            const actionBtn = document.getElementById('authActionBtn');
+            actionBtn.textContent = "Logout";
+            actionBtn.onclick = () => {
+              document.getElementById('homeGreeting').textContent = "Welcome to";
+              document.getElementById('homeUsername').textContent = "Vision AID";
+              actionBtn.textContent = "Login";
+              actionBtn.onclick = openAuthModal;
+            };
+            closeAuthModal();
+          }
+        } catch (err) {
+          errDiv.textContent = err.message || "An error occurred";
+          errDiv.style.display = 'block';
+          btn.textContent = authMode === 'signup' ? "Create Account" : "Sign In";
+        }
+      }
 
       function buildFutureContent() {
         return `
