@@ -58,14 +58,14 @@
       }
 
       .app-container {
-        padding: calc(24px + env(safe-area-inset-top)) 16px 8px;
+        padding: 4px 12px;
       }
 
       /* ─── HEADER ─── */
       .home-header {
         background: #1a1a1a;
-        border-radius: 24px;
-        padding: 20px 24px;
+        border-radius: 20px;
+        padding: 12px 16px;
         display: flex;
         align-items: center;
         justify-content: space-between;
@@ -551,7 +551,7 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 16px 14px;
+        padding: 10px 14px;
       }
       .device-status-item + .device-status-item {
         border-top: 1px solid var(--divider);
@@ -3171,21 +3171,6 @@ function navSOS(el) {
            }
          }, 2000);
       });
-
-      // Attempt to go fullscreen automatically on the first user interaction
-      document.body.addEventListener('click', () => {
-        if (!document.fullscreenElement) {
-          if (document.documentElement.requestFullscreen) {
-            document.documentElement.requestFullscreen().catch(err => {
-              console.log("Fullscreen request failed:", err);
-            });
-          } else if (document.documentElement.webkitRequestFullscreen) { /* Safari */
-            document.documentElement.webkitRequestFullscreen();
-          } else if (document.documentElement.msRequestFullscreen) { /* IE11 */
-            document.documentElement.msRequestFullscreen();
-          }
-        }
-      }, { once: true });
     </script>
     <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
     <script src="/js/VisionEngine.js"></script>
