@@ -35,6 +35,16 @@
         --danger: #f87171;
         --shadow-sm: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02);
         --shadow-md: 0 4px 12px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.04);
+        --shadow-md: 0 4px 12px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.04);
+      }
+
+      html.dark-mode {
+        filter: invert(1) hue-rotate(180deg);
+      }
+      
+      html.dark-mode img, 
+      html.dark-mode video {
+        filter: invert(1) hue-rotate(180deg);
       }
 
       html,
@@ -2512,8 +2522,8 @@
 <div class="toggle-switch ${document.fullscreenElement ? 'on' : ''}" onclick="toggleFullScreen(this)"><div class="toggle-knob"></div></div>
 </div>
 <div class="toggle-row">
-<span class="toggle-label">Energy Saver Mode</span>
-<div class="toggle-switch" onclick="toggleSwitch(this)"><div class="toggle-knob"></div></div>
+<span class="toggle-label">Dark Mode</span>
+<div class="toggle-switch ${document.documentElement.classList.contains('dark-mode') ? 'on' : ''}" onclick="toggleDarkMode(this)"><div class="toggle-knob"></div></div>
 </div>
 <div class="slider-row">
 <div class="slider-header">
@@ -2989,6 +2999,11 @@
 
       function toggleSwitch(el) {
         el.classList.toggle("on");
+      }
+
+      function toggleDarkMode(el) {
+        el.classList.toggle("on");
+        document.documentElement.classList.toggle("dark-mode", el.classList.contains("on"));
       }
 
       function toggleFullScreen(el) {
