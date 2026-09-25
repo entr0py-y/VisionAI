@@ -937,7 +937,7 @@ SENSOR DATA:
           });
 
           const primaryVisionResp = await groqVisionClient.chat.completions.create({
-            model: 'llama-3.2-11b-vision-preview',
+            model: 'qwen/qwen3.8-27b',
             messages: [
               {
                 role: 'user',
@@ -964,7 +964,7 @@ SENSOR DATA:
             content: description
           }).catch(err => console.error('Supabase vision insert error:', err));
           
-          return res.json({ description, model: 'llama-3.2-90b-vision', image: base64 });
+          return res.json({ description, model: 'qwen-3.8-27b-vision', image: base64 });
         }
       } catch (visionErr) {
         console.error('[Vision] Groq Vision Model failed:', visionErr.status, visionErr.message);
