@@ -681,6 +681,108 @@
         display: none;
       }
 
+      /* ─── AUTH MODAL ─── */
+      .auth-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.4);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        z-index: 300;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity var(--transition);
+      }
+      .auth-overlay.active {
+        opacity: 1;
+        pointer-events: auto;
+      }
+      .auth-modal {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%) scale(0.95);
+        background: #1a1a1a;
+        width: 90%;
+        max-width: 340px;
+        border-radius: 24px;
+        padding: 24px;
+        z-index: 301;
+        opacity: 0;
+        pointer-events: none;
+        transition: all var(--transition);
+        box-shadow: 0 12px 40px rgba(0,0,0,0.3);
+        border: 1px solid rgba(255,255,255,0.05);
+      }
+      .auth-modal.active {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+        pointer-events: auto;
+      }
+      .auth-modal h2 {
+        color: #fff;
+        font-size: 22px;
+        font-weight: 600;
+        margin-bottom: 4px;
+        text-align: center;
+      }
+      .auth-modal p {
+        color: var(--muted);
+        font-size: 13px;
+        text-align: center;
+        margin-bottom: 24px;
+      }
+      .auth-tabs {
+        display: flex;
+        background: rgba(255,255,255,0.05);
+        border-radius: 12px;
+        padding: 4px;
+        margin-bottom: 20px;
+      }
+      .auth-tab {
+        flex: 1;
+        text-align: center;
+        padding: 8px;
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--muted);
+        border-radius: 10px;
+        cursor: pointer;
+        transition: all var(--transition);
+      }
+      .auth-tab.active {
+        background: #fff;
+        color: #000;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      }
+      .auth-modal input {
+        width: 100%;
+        padding: 14px 16px;
+        border-radius: 12px;
+        border: 1px solid rgba(255,255,255,0.1);
+        background: rgba(0,0,0,0.2);
+        color: #fff;
+        font-size: 14px;
+        margin-bottom: 12px;
+        outline: none;
+        transition: border-color var(--transition);
+      }
+      .auth-modal input:focus {
+        border-color: rgba(255,255,255,0.3);
+      }
+      .auth-modal button {
+        width: 100%;
+        padding: 14px;
+        border-radius: 12px;
+        border: none;
+        background: #fff;
+        color: #000;
+        font-weight: 600;
+        font-size: 15px;
+        cursor: pointer;
+        margin-top: 8px;
+      }
+
       /* ─── MODAL OVERLAY ─── */
       .modal-overlay {
         position: fixed;
@@ -1406,7 +1508,7 @@
             <div class="home-username" id="homeUsername">Vision AID</div>
           </div>
         </div>
-        <button class="login-btn" id="authActionBtn" onclick="openModal('auth')">Login</button>
+        <button class="login-btn" id="authActionBtn" onclick="openAuthModal()">Login</button>
       </div>
 
       <!-- ─── SYSTEM STATUS SECTION ─── -->
@@ -1588,6 +1690,25 @@
       </div>
     </nav>
 
+    <div class="auth-overlay" id="authOverlay" onclick="closeAuthModal()"></div>
+    <div class="auth-modal" id="authModal">
+      <h2>Account Login</h2>
+      <p id="authSubtitle">Sign in to Vision AID</p>
+      
+      <div class="auth-tabs">
+        <div class="auth-tab active" id="tabSignIn" onclick="switchAuthTab('signin')">Sign In</div>
+        <div class="auth-tab" id="tabSignUp" onclick="switchAuthTab('signup')">Sign Up</div>
+      </div>
+
+      <input type="text" id="authUsername" placeholder="Username" style="display: none;" />
+      <input type="email" id="authEmail" placeholder="Email Address" />
+      <input type="password" id="authPass" placeholder="Password" />
+      
+      <div id="authError" style="color: var(--danger); font-size: 12px; margin-bottom: 12px; text-align: center; display: none;"></div>
+      
+      <button onclick="doAuth()" id="authSubmitBtn">Sign In</button>
+    </div>
+
     <div class="modal-overlay" id="modalOverlay" onclick="closeModal()"></div>
     <div class="modal-panel" id="modalPanel">
       <div class="modal-handle"></div>
@@ -1610,13 +1731,6 @@
       };
 
       const modules = [
-        {
-          id: "auth",
-          title: "Account Login",
-          desc: "Sign in to Vision AID",
-          icon: '',
-          features: []
-        },
         {
           id: "vision",
           title: "Smart Vision Engine",
@@ -1756,7 +1870,6 @@
 
         // Feature list removed as requested 
 
-        if (id === "auth") body.innerHTML += buildAuthContent();
         if (id === "vision") body.innerHTML += buildVisionContent();
         if (id === "mobility") body.innerHTML += buildMobilityContent();
         if (id === "recognition") body.innerHTML += buildRecognitionContent();
@@ -2444,61 +2557,7 @@
 </div>`;
       }
 
-      function buildAuthContent() {
-        return `
-<div class="modal-section" style="margin-top: 20px;">
-  <div style="margin-bottom: 12px;">
-    <input type="email" id="loginEmail" placeholder="Email Address" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #333; background: #1a1a1a; color: #fff; font-size: 14px; margin-bottom: 10px; outline: none;" />
-    <input type="password" id="loginPass" placeholder="Password" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #333; background: #1a1a1a; color: #fff; font-size: 14px; outline: none;" />
-  </div>
-  <div id="loginError" style="color: var(--danger); font-size: 12px; margin-bottom: 12px; text-align: center; display: none;"></div>
-  <button onclick="doLogin()" id="loginSubmitBtn" style="width: 100%; padding: 12px; border-radius: 8px; border: none; background: #fff; color: #000; font-weight: 600; font-size: 14px; cursor: pointer;">Sign In</button>
-</div>
-        `;
-      }
 
-      async function doLogin() {
-        const email = document.getElementById('loginEmail').value;
-        const password = document.getElementById('loginPass').value;
-        const errDiv = document.getElementById('loginError');
-        const btn = document.getElementById('loginSubmitBtn');
-        if(!email || !password) return;
-
-        btn.textContent = "Logging in...";
-        errDiv.style.display = 'none';
-
-        try {
-          const res = await fetch('/api/auth/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password })
-          });
-          const data = await res.json();
-          
-          if (data.error) {
-            errDiv.textContent = data.error;
-            errDiv.style.display = 'block';
-            btn.textContent = "Sign In";
-          } else {
-            // Success
-            document.getElementById('homeGreeting').textContent = "Welcome back,";
-            document.getElementById('homeUsername').textContent = data.name || email.split('@')[0];
-            const actionBtn = document.getElementById('authActionBtn');
-            actionBtn.textContent = "Logout";
-            actionBtn.onclick = () => {
-              document.getElementById('homeGreeting').textContent = "Welcome to";
-              document.getElementById('homeUsername').textContent = "Vision AID";
-              actionBtn.textContent = "Login";
-              actionBtn.onclick = () => openModal('auth');
-            };
-            closeModal();
-          }
-        } catch (err) {
-          errDiv.textContent = err.message || "An error occurred";
-          errDiv.style.display = 'block';
-          btn.textContent = "Sign In";
-        }
-      }
 
       function buildFutureContent() {
         return `

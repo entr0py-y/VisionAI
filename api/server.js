@@ -604,6 +604,32 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// POST /api/auth/signup — Supabase Signup
+// ═══════════════════════════════════════════════════════════════════════════════
+app.post('/api/auth/signup', async (req, res) => {
+  try {
+    const { supabase } = require('../lib/supabaseClient.cjs');
+    if (!supabase) return res.status(500).json({ error: 'Supabase not configured' });
+    
+    const { email, password, username } = req.body;
+    if (!email || !password || !username) return res.status(400).json({ error: 'Email, password, and username required' });
+
+    const { data, error } = await supabase.auth.signUp({ email, password });
+    if (error) return res.status(400).json({ error: error.message });
+    if (!data.user) return res.status(400).json({ error: 'Signup failed. Please try again.' });
+
+    // Attempt to insert profile 
+    try {
+      await supabase.from('profiles').insert([{ id: data.user.id, username, name: username }]);
+    } catch(e) { /* ignore if profile table doesn't exist or fails */ }
+
+    res.json({ user: data.user, name: username });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // POST /api/ai/chat — Streaming general chat (existing)
 // ═══════════════════════════════════════════════════════════════════════════════
 app.post('/api/ai/chat', async (req, res) => {
