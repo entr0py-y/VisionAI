@@ -574,6 +574,36 @@ async function aiComplete(messages, modelOverride = null, maxTokens = 512) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// POST /api/auth/login — Supabase Authentication
+// ═══════════════════════════════════════════════════════════════════════════════
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { supabase } = require('../lib/supabaseClient.cjs');
+    if (!supabase) return res.status(500).json({ error: 'Supabase not configured' });
+    
+    const { email, password } = req.body;
+    if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
+
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) return res.status(401).json({ error: error.message });
+
+    let userName = email.split('@')[0];
+    
+    // Attempt to get profile data
+    try {
+      const { data: profile } = await supabase.from('profiles').select('*').eq('id', data.user.id).single();
+      if (profile && (profile.name || profile.full_name || profile.username)) {
+        userName = profile.name || profile.full_name || profile.username;
+      }
+    } catch(e) { /* ignore if profile table doesn't exist */ }
+
+    res.json({ user: data.user, name: userName });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // POST /api/ai/chat — Streaming general chat (existing)
 // ═══════════════════════════════════════════════════════════════════════════════
 app.post('/api/ai/chat', async (req, res) => {

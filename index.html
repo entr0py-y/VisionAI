@@ -106,27 +106,19 @@
         color: #ffffff;
         letter-spacing: -0.2px;
       }
-      .home-header-action {
-        width: 36px;
-        height: 36px;
-        border-radius: 50%;
+      .login-btn {
+        padding: 8px 16px;
+        border-radius: 20px;
         border: none;
         background: rgba(255,255,255,0.15);
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        color: #ffffff;
+        font-size: 13px;
+        font-weight: 600;
         cursor: pointer;
         transition: all var(--transition);
       }
-      .home-header-action:active {
+      .login-btn:active {
         transform: scale(0.92);
-      }
-      .home-header-action svg {
-        width: 20px;
-        height: 20px;
-        stroke: #ffffff;
-        stroke-width: 1.5;
-        fill: none;
       }
 
       /* ─── PRIMARY FEATURE CARD ─── */
@@ -1402,7 +1394,7 @@
     <div class="app-container" id="appContainer">
 
       <!-- ─── HEADER (Merged with AI Assistant) ─── -->
-      <div class="home-header" onclick="openModal('companion')">
+      <div class="home-header">
         <div class="home-header-left">
           <div class="home-avatar">
             <svg viewBox="0 0 24 24" width="22" height="22" stroke="#777" stroke-width="1.5" fill="none">
@@ -1410,13 +1402,11 @@
             </svg>
           </div>
           <div>
-            <div class="home-greeting">Welcome back to</div>
-            <div class="home-username">Vision AID</div>
+            <div class="home-greeting" id="homeGreeting">Welcome to</div>
+            <div class="home-username" id="homeUsername">Vision AID</div>
           </div>
         </div>
-        <div class="home-header-action">
-          <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-        </div>
+        <button class="login-btn" id="authActionBtn" onclick="openModal('auth')">Login</button>
       </div>
 
       <!-- ─── SYSTEM STATUS SECTION ─── -->
@@ -1621,6 +1611,13 @@
 
       const modules = [
         {
+          id: "auth",
+          title: "Account Login",
+          desc: "Sign in to Vision AID",
+          icon: '',
+          features: []
+        },
+        {
           id: "vision",
           title: "Smart Vision Engine",
           desc: "Real-time visual processing",
@@ -1759,6 +1756,7 @@
 
         // Feature list removed as requested 
 
+        if (id === "auth") body.innerHTML += buildAuthContent();
         if (id === "vision") body.innerHTML += buildVisionContent();
         if (id === "mobility") body.innerHTML += buildMobilityContent();
         if (id === "recognition") body.innerHTML += buildRecognitionContent();
@@ -2444,6 +2442,62 @@
 <div class="status-row"><span class="status-label">Uptime</span><div class="meter-bar"><div class="meter-fill" style="width:100%"></div></div><span class="status-val">4h 32m</span></div>
 </div>
 </div>`;
+      }
+
+      function buildAuthContent() {
+        return `
+<div class="modal-section" style="margin-top: 20px;">
+  <div style="margin-bottom: 12px;">
+    <input type="email" id="loginEmail" placeholder="Email Address" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #333; background: #1a1a1a; color: #fff; font-size: 14px; margin-bottom: 10px; outline: none;" />
+    <input type="password" id="loginPass" placeholder="Password" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #333; background: #1a1a1a; color: #fff; font-size: 14px; outline: none;" />
+  </div>
+  <div id="loginError" style="color: var(--danger); font-size: 12px; margin-bottom: 12px; text-align: center; display: none;"></div>
+  <button onclick="doLogin()" id="loginSubmitBtn" style="width: 100%; padding: 12px; border-radius: 8px; border: none; background: #fff; color: #000; font-weight: 600; font-size: 14px; cursor: pointer;">Sign In</button>
+</div>
+        `;
+      }
+
+      async function doLogin() {
+        const email = document.getElementById('loginEmail').value;
+        const password = document.getElementById('loginPass').value;
+        const errDiv = document.getElementById('loginError');
+        const btn = document.getElementById('loginSubmitBtn');
+        if(!email || !password) return;
+
+        btn.textContent = "Logging in...";
+        errDiv.style.display = 'none';
+
+        try {
+          const res = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password })
+          });
+          const data = await res.json();
+          
+          if (data.error) {
+            errDiv.textContent = data.error;
+            errDiv.style.display = 'block';
+            btn.textContent = "Sign In";
+          } else {
+            // Success
+            document.getElementById('homeGreeting').textContent = "Welcome back,";
+            document.getElementById('homeUsername').textContent = data.name || email.split('@')[0];
+            const actionBtn = document.getElementById('authActionBtn');
+            actionBtn.textContent = "Logout";
+            actionBtn.onclick = () => {
+              document.getElementById('homeGreeting').textContent = "Welcome to";
+              document.getElementById('homeUsername').textContent = "Vision AID";
+              actionBtn.textContent = "Login";
+              actionBtn.onclick = () => openModal('auth');
+            };
+            closeModal();
+          }
+        } catch (err) {
+          errDiv.textContent = err.message || "An error occurred";
+          errDiv.style.display = 'block';
+          btn.textContent = "Sign In";
+        }
       }
 
       function buildFutureContent() {
