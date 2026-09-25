@@ -35,37 +35,29 @@
         --danger: #f87171;
         --shadow-sm: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02);
         --shadow-md: 0 4px 12px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.04);
-        --shadow-md: 0 4px 12px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.04);
-        --shadow-md: 0 4px 12px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.04);
+      }
+
+      html.dark-mode {
+        --card: #1c1c1e;
+        --glass: rgba(30, 30, 30, 0.85);
+        --accent: #ffffff;
+        --muted: #a1a1a6;
+        --divider: rgba(255, 255, 255, 0.1);
       }
 
       html.dark-mode body {
         background: linear-gradient(to bottom, #111111 0%, #222222 100%);
-        color: #ffffff;
-      }
-      html.dark-mode .widget-card,
-      html.dark-mode .modal-panel,
-      html.dark-mode .device-status-item,
-      html.dark-mode .auth-modal {
-        background: #1c1c1e;
-        color: #ffffff;
-      }
-      html.dark-mode .modal-section,
-      html.dark-mode .auth-modal .auth-title {
-        color: #ffffff;
-      }
-      html.dark-mode .toggle-row,
-      html.dark-mode .slider-row,
-      html.dark-mode .info-row {
-        border-bottom-color: rgba(255,255,255,0.1);
       }
       html.dark-mode .home-header {
         background: #111111;
       }
+      html.dark-mode .auth-modal {
+        background: var(--card);
+      }
       html.dark-mode .auth-modal input {
         background: rgba(255,255,255,0.05);
         color: #ffffff;
-        border-color: rgba(255,255,255,0.1);
+        border-color: var(--divider);
       }
 
       html,
