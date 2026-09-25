@@ -219,6 +219,10 @@
         padding: 0;
       }
 
+      .features-row {
+        grid-template-columns: repeat(3, 1fr);
+      }
+
       .widget-card {
         background: var(--card);
         border: 1px solid var(--divider);
@@ -232,6 +236,14 @@
         min-height: 70px;
         box-shadow: var(--shadow-sm);
         transition: all var(--transition);
+      }
+
+      .status-widgets .widget-card {
+        background: transparent;
+        border: none;
+        box-shadow: none;
+        padding: 4px;
+        min-height: 0;
       }
 
       .widget-card::before {
@@ -1413,9 +1425,7 @@
       </div>
 
       <!-- ─── SYSTEM STATUS SECTION ─── -->
-      <div class="section-heading">System Status</div>
-
-      <div class="widgets-row">
+      <div class="widgets-row status-widgets">
 
         <div class="widget-card">
           <div class="widget-top">
@@ -1522,7 +1532,7 @@
 
       <!-- ─── FEATURES ─── -->
       <div class="section-heading">Features</div>
-      <div class="widgets-row">
+      <div class="widgets-row features-row">
         <div class="widget-card" onclick="openModal('mobility')" style="cursor: pointer; align-items: center; justify-content: center; gap: 8px;">
           <div class="widget-icon" style="width: 44px; height: 44px; border-radius: 12px;">
             <svg viewBox="0 0 24 24" style="width: 20px; height: 20px; opacity: 1;"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
@@ -1535,7 +1545,7 @@
           </div>
           <div class="widget-label" style="font-size: 13px; font-weight: 500; color: var(--accent); margin-top: 4px; text-transform: none;">Safety</div>
         </div>
-        <div class="widget-card widget-wide" onclick="openModal('companion')" style="cursor: pointer; align-items: center; justify-content: center; gap: 8px;">
+        <div class="widget-card" onclick="openModal('companion')" style="cursor: pointer; align-items: center; justify-content: center; gap: 8px;">
           <div class="widget-icon" style="width: 44px; height: 44px; border-radius: 12px;">
             <svg viewBox="0 0 24 24" style="width: 20px; height: 20px; opacity: 1;"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
           </div>
