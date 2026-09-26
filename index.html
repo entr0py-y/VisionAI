@@ -3863,7 +3863,15 @@ function navSOS(el) {
              const timeoutId = setTimeout(() => controller.abort(), 2000);
              const resp = await fetch(`${ESP32_CAM_URL}/status`, { signal: controller.signal });
              clearTimeout(timeoutId);
-             window.espCamOnline = resp.ok;
+             if (resp.ok) {
+               const data = await resp.json().catch(() => ({}));
+               window.espCamOnline = (data.cam_ok !== false);
+               if (data.cam_ok === false) {
+                 console.warn("[CAM Status] ESP32-CAM is online, but camera sensor init failed!", data);
+               }
+             } else {
+               window.espCamOnline = false;
+             }
            } catch(e) {
              window.espCamOnline = false;
            }

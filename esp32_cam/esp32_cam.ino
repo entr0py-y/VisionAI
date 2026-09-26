@@ -33,6 +33,10 @@ IPAddress subnet(255, 255, 255, 0);
 #define HREF_GPIO_NUM 23
 #define PCLK_GPIO_NUM 22
 
+// Camera health status tracking
+bool camInitialized = false;
+esp_err_t camInitError = ESP_OK;
+
 // Local HTTP server for serving captured images
 WebServer server(80);
 
@@ -40,21 +44,34 @@ WebServer server(80);
 // HTTP HANDLERS
 // ===========================
 
-// GET /capture — Flush stale frame, capture fresh JPEG, return it
+// GET /capture — Capture fresh JPEG from sensor and stream it to the client
 void handleCapture() {
   Serial.println("[CAM] Capture requested...");
   
-  // Flush stale frame (since fb_count is 1, the oldest frame is buffered)
-  camera_fb_t *stale = esp_camera_fb_get();
-  if (stale) {
-    esp_camera_fb_return(stale);
+  if (!camInitialized) {
+    Serial.printf("[CAM] Cannot capture: Camera hardware init failed at boot (error 0x%x)!\n", camInitError);
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    char errBody[128];
+    snprintf(errBody, sizeof(errBody), "Camera not initialized (error 0x%x). Check PSRAM and ribbon cable.", camInitError);
+    server.send(500, "text/plain", errBody);
+    return;
   }
 
-  // Capture fresh real-time frame
-  camera_fb_t *fb = esp_camera_fb_get();
+  // Attempt to capture frame with retries (avoids DMA/VSYNC timeout issues)
+  camera_fb_t *fb = NULL;
+  for (int attempt = 1; attempt <= 3; attempt++) {
+    fb = esp_camera_fb_get();
+    if (fb) {
+      break;
+    }
+    Serial.printf("[CAM] Capture attempt %d failed, retrying in 50ms...\n", attempt);
+    delay(50);
+  }
+
   if (!fb) {
-    server.send(500, "text/plain", "Camera capture failed");
-    Serial.println("[CAM] Capture FAILED!");
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.send(500, "text/plain", "Camera capture failed: sensor frame timeout");
+    Serial.println("[CAM] Capture FAILED! (Sensor timeout or power dip)");
     return;
   }
 
@@ -62,26 +79,37 @@ void handleCapture() {
   server.sendHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   server.sendHeader("Cache-Control", "no-cache, no-store");
   
-  // Tell WebServer the exact size of the binary data we are about to send
+  // Inform client of exact binary JPEG size
   server.setContentLength(fb->len);
-  
-  // Send HTTP headers (empty string prevents WebServer from appending a text body)
   server.send(200, "image/jpeg", "");
   
-  // Write the raw JPEG binary data directly to the client socket
-  server.client().write(fb->buf, fb->len);
+  // Stream raw JPEG bytes to client socket in chunks
+  WiFiClient client = server.client();
+  if (client.connected()) {
+    uint8_t *buf = fb->buf;
+    size_t remaining = fb->len;
+    while (remaining > 0 && client.connected()) {
+      size_t chunkSize = (remaining > 2048) ? 2048 : remaining;
+      client.write(buf, chunkSize);
+      buf += chunkSize;
+      remaining -= chunkSize;
+    }
+  }
   
   esp_camera_fb_return(fb);
   Serial.printf("[CAM] Served JPEG: %u bytes\n", fb->len);
 }
 
-// GET /status — Health check for the phone to verify CAM is online
+// GET /status — Health check for the phone to verify CAM is online and operational
 void handleStatus() {
   server.sendHeader("Access-Control-Allow-Origin", "*");
-  char json[128];
+  char json[200];
   snprintf(json, sizeof(json), 
-    "{\"status\":\"online\",\"type\":\"ESP32_CAM\",\"heap\":%u}",
-    ESP.getFreeHeap());
+    "{\"status\":\"online\",\"type\":\"ESP32_CAM\",\"cam_ok\":%s,\"psram\":%s,\"heap\":%u,\"cam_err\":%d}",
+    camInitialized ? "true" : "false",
+    psramFound() ? "true" : "false",
+    ESP.getFreeHeap(),
+    (int)camInitError);
   server.send(200, "application/json", json);
 }
 
@@ -95,7 +123,19 @@ void handleCORS() {
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("Starting ESP32-CAM (SoftAP Client Mode)...");
+  delay(1000); // Allow serial monitor to catch boot messages
+  Serial.println("\n\n========================================");
+  Serial.println("  Starting ESP32-CAM (SoftAP Client Mode)");
+  Serial.println("========================================");
+
+  // Diagnostic: Check PSRAM
+  if (psramFound()) {
+    Serial.printf("[SYSTEM] PSRAM Detected: %u KB free\n", ESP.getFreePsram() / 1024);
+  } else {
+    Serial.println("[SYSTEM] PSRAM NOT Detected!");
+    Serial.println("[SYSTEM] Note: In Arduino IDE, make sure 'Tools -> PSRAM -> Enabled' is selected.");
+  }
+  Serial.printf("[SYSTEM] Free internal heap: %u bytes\n", ESP.getFreeHeap());
 
   // 1. CONNECT TO VisionAID NETWORK (created by ESP32-MIC)
   WiFi.mode(WIFI_STA);
@@ -145,23 +185,38 @@ void setup() {
   config.pin_sccb_scl = SIOC_GPIO_NUM;
   config.pin_pwdn = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
-  config.xclk_freq_hz = 20000000;
+  // 10MHz clock eliminates signal jitter and DMA frame timeouts common at 20MHz
+  config.xclk_freq_hz = 10000000;
   config.pixel_format = PIXFORMAT_JPEG;
+
   if (psramFound()) {
     config.frame_size = FRAMESIZE_VGA;
     config.jpeg_quality = 12;
-    config.fb_count = 1;
+    config.fb_count = 2; // Double buffering with PSRAM
+#if defined(CAMERA_GRAB_LATEST)
+    config.grab_mode = CAMERA_GRAB_LATEST; // Driver automatically keeps newest frame
+#endif
   } else {
-    config.frame_size = FRAMESIZE_VGA;
-    config.jpeg_quality = 12;
+    // Without PSRAM, internal DRAM cannot hold VGA. Use CIF (400x296) for reliable capture
+    config.frame_size = FRAMESIZE_CIF;
+    config.jpeg_quality = 14;
     config.fb_count = 1;
+#if defined(CAMERA_FB_IN_DRAM)
+    config.fb_location = CAMERA_FB_IN_DRAM;
+#endif
   }
 
-  esp_err_t err = esp_camera_init(&config);
-  if (err != ESP_OK) {
-    Serial.printf("Camera init failed with error 0x%x\n", err);
+  camInitError = esp_camera_init(&config);
+  if (camInitError != ESP_OK) {
+    Serial.printf("[CAM] ERROR: esp_camera_init failed with error 0x%x\n", camInitError);
+    if (camInitError == ESP_ERR_NO_MEM) {
+      Serial.println("[CAM] -> Reason: OUT OF MEMORY. In Arduino IDE, set Tools -> PSRAM -> Enabled!");
+    } else if (camInitError == ESP_ERR_NOT_FOUND) {
+      Serial.println("[CAM] -> Reason: SENSOR NOT DETECTED. Check OV2640 ribbon cable connection!");
+    }
   } else {
-    Serial.println("Camera initialized.");
+    camInitialized = true;
+    Serial.println("[CAM] Camera initialized successfully.");
     
     // Perform image inversion via hardware
     sensor_t * s = esp_camera_sensor_get();
@@ -180,6 +235,7 @@ void setup() {
   
   Serial.println("\n========================================");
   Serial.println("  ESP32-CAM Ready (SoftAP Client)!");
+  Serial.printf("  Camera Status: %s\n", camInitialized ? "READY" : "FAILED (check logs above)");
   Serial.printf("  Connected to: %s\n", ssid);
   Serial.printf("  Capture URL: http://%s/capture\n", WiFi.localIP().toString().c_str());
   Serial.printf("  Status URL:  http://%s/status\n", WiFi.localIP().toString().c_str());

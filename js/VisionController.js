@@ -121,7 +121,10 @@ const VisionController = (() => {
        // Capture JPEG directly from local ESP32-CAM HTTP server
        const ESP32_CAM_URL = "http://192.168.4.2";
        const captureResp = await fetch(`${ESP32_CAM_URL}/capture`);
-       if (!captureResp.ok) throw new Error('ESP Camera capture failed');
+       if (!captureResp.ok) {
+         const errText = await captureResp.text().catch(() => '');
+         throw new Error(errText || 'ESP Camera capture failed');
+       }
        
        const imageBlob = await captureResp.blob();
        
@@ -165,8 +168,8 @@ const VisionController = (() => {
     } catch(espErr) {
        log('Hardware camera fetch failed: ' + espErr.message);
        if (!useDeviceCamera) {
-          log("Hardware camera failed. Falling back to device camera.");
-          uiMsg('⚠️ Hardware camera timed out. Falling back to device camera...', 'ai');
+          log("Hardware camera failed. Falling back to device camera: " + espErr.message);
+          uiMsg(`⚠️ Hardware camera: ${espErr.message}. Falling back to device camera...`, 'ai');
           return await runDeviceCamera(userPrompt);
        } else {
           const fallback = 'Device camera unavailable or permission denied. Please allow camera access and try again.';
