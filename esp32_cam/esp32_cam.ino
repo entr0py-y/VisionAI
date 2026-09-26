@@ -206,13 +206,30 @@ void setup() {
 #endif
   }
 
+  // Hardware power-cycle for OV2640 sensor before init
+  pinMode(PWDN_GPIO_NUM, OUTPUT);
+  digitalWrite(PWDN_GPIO_NUM, HIGH); // Assert power-down
+  delay(100);
+  digitalWrite(PWDN_GPIO_NUM, LOW);  // Wake sensor up
+  delay(100);
+
   camInitError = esp_camera_init(&config);
+  if (camInitError != ESP_OK) {
+    Serial.printf("[CAM] Initial init failed (0x%x), retrying after reset...\n", camInitError);
+    digitalWrite(PWDN_GPIO_NUM, HIGH);
+    delay(150);
+    digitalWrite(PWDN_GPIO_NUM, LOW);
+    delay(150);
+    camInitError = esp_camera_init(&config);
+  }
+
   if (camInitError != ESP_OK) {
     Serial.printf("[CAM] ERROR: esp_camera_init failed with error 0x%x\n", camInitError);
     if (camInitError == ESP_ERR_NO_MEM) {
       Serial.println("[CAM] -> Reason: OUT OF MEMORY. In Arduino IDE, set Tools -> PSRAM -> Enabled!");
     } else if (camInitError == ESP_ERR_NOT_FOUND) {
-      Serial.println("[CAM] -> Reason: SENSOR NOT DETECTED. Check OV2640 ribbon cable connection!");
+      Serial.println("[CAM] -> Reason: SENSOR NOT DETECTED (0x105). Check OV2640 ribbon cable connection!");
+      Serial.println("[CAM] -> Fix: Reseat the gold ribbon pins into the connector and snap the clip shut.");
     }
   } else {
     camInitialized = true;

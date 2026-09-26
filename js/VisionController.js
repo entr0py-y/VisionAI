@@ -40,6 +40,27 @@ const VisionController = (() => {
       audio: false
     });
 
+    const track = stream.getVideoTracks()[0];
+
+    // Modern Android Chrome: use ImageCapture API to grab a pure photo snapshot
+    // This avoids appending a <video> element to DOM and prevents Android from caching video clips in the gallery!
+    if (window.ImageCapture && track) {
+      try {
+        const imageCapture = new ImageCapture(track);
+        const blob = await imageCapture.takePhoto();
+        const base64 = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+        await stopStream();
+        return base64;
+      } catch (err) {
+        log('ImageCapture failed, falling back to canvas: ' + err.message);
+      }
+    }
+
     videoEl = document.createElement('video');
     videoEl.autoplay = true;
     videoEl.playsInline = true;
@@ -57,10 +78,7 @@ const VisionController = (() => {
     });
 
     await videoEl.play();
-
-    // Give the camera sensor time to adjust exposure and white balance
-    // Otherwise the first frame is almost always completely black
-    await new Promise(r => setTimeout(r, 1500));
+    await new Promise(r => setTimeout(r, 600));
 
     const width = videoEl.videoWidth || 1280;
     const height = videoEl.videoHeight || 720;

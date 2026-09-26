@@ -108,10 +108,12 @@ const unsigned long ALERT_INTERVAL = 200;   // 200ms in HIGH ALERT mode
 const unsigned long IDLE_INTERVAL  = 400;   // 400ms in IDLE mode
 unsigned long currentSensorInterval = IDLE_INTERVAL;
 
-// Auto-recording state (for website-triggered recording)
+// Auto-recording state & safety limit
 bool autoRecordMode = false;
 unsigned long autoRecordStart = 0;
-const unsigned long AUTO_RECORD_DURATION = 3000; // 3 seconds
+const unsigned long AUTO_RECORD_DURATION = 3000; // 3 seconds for website trigger
+const unsigned long MAX_RECORD_DURATION = 10000; // 10 seconds maximum hard cutoff for ALL recording
+unsigned long recordStartTime = 0;
 
 // ===========================
 // LED HELPER (S3 RGB LED)
@@ -230,6 +232,7 @@ void startRecording() {
   }
   
   isRecording = true;
+  recordStartTime = millis();
   i2s_zero_dma_buffer(I2S_PORT);
 }
 
@@ -283,7 +286,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length
         autoRecordMode = true;
         autoRecordStart = millis();
         startRecording();
-      } else if (msg == "STOP_RECORDING" && isRecording) {
+      } else if ((msg == "STOP_RECORDING" || msg == "STOP") && isRecording) {
         stopRecording();
       }
       break;
@@ -344,6 +347,8 @@ void setup() {
 
   // 3. CONFIGURE SENSOR PINS
   pinMode(TOUCH_PIN, INPUT_PULLDOWN);  // Module: pull down, press = HIGH
+  delay(10);
+  lastTouchState = digitalRead(TOUCH_PIN); // Prevent false triggers on startup!
   pinMode(PIR_PIN, INPUT);          
   pinMode(ULTRASONIC_TRIG, OUTPUT);
   pinMode(ULTRASONIC_ECHO, INPUT); 
@@ -373,6 +378,12 @@ void loop() {
   // Auto-record timeout (for website-triggered recording)
   if (autoRecordMode && isRecording && (millis() - autoRecordStart >= AUTO_RECORD_DURATION)) {
     Serial.println("[REC] Auto-record timeout reached (3s). Stopping...");
+    stopRecording();
+  }
+
+  // Hard safety cutoff — no recording session can ever exceed 10 seconds under any circumstances
+  if (isRecording && (millis() - recordStartTime >= MAX_RECORD_DURATION)) {
+    Serial.println("[REC] Safety cutoff reached (10s). Auto-stopping recording...");
     stopRecording();
   }
 

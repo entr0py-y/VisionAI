@@ -2537,9 +2537,10 @@
           return;
         }
 
-        if (controller.isRecording && controller.isRecording()) {
-          controller.stop();
-          companionState.isRecording = false;
+        const micBtn = document.getElementById('micBtn');
+        const isCurrentlyRecording = (controller.isRecording && controller.isRecording()) || (micBtn && micBtn.classList.contains('recording'));
+        if (isCurrentlyRecording) {
+          stopVoiceInput();
         } else {
           controller.captureCommand();
           companionState.isRecording = true;
@@ -2549,6 +2550,9 @@
       function stopVoiceInput() {
         companionState.isRecording = false;
         if (typeof VoiceAssistantController !== 'undefined') VoiceAssistantController.stop();
+        if (window.localWS && window.localWS.readyState === WebSocket.OPEN) {
+          try { window.localWS.send("STOP"); } catch(e) {}
+        }
         const micBtn = document.getElementById('micBtn');
         if (micBtn) micBtn.classList.remove('recording');
       }
@@ -3781,9 +3785,17 @@ function navSOS(el) {
          }
 
          // ─── EVENT HANDLERS ───
+         let btnSafetyTimeout = null;
+
          function handleButtonTouched() {
            const micBtn = document.getElementById('micBtn');
            if (micBtn) micBtn.classList.add('recording');
+
+           if (btnSafetyTimeout) clearTimeout(btnSafetyTimeout);
+           btnSafetyTimeout = setTimeout(() => {
+             console.warn("[Hardware BTN] Safety timeout (10s): auto-clearing recording state.");
+             handleButtonReleased();
+           }, 10000);
 
            // Stop any ongoing TTS immediately
            if (window.speechSynthesis) {
@@ -3815,6 +3827,11 @@ function navSOS(el) {
          }
 
          function handleButtonReleased() {
+           if (btnSafetyTimeout) {
+             clearTimeout(btnSafetyTimeout);
+             btnSafetyTimeout = null;
+           }
+
            const micBtn = document.getElementById('micBtn');
            if (micBtn) micBtn.classList.remove('recording');
 
