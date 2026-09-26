@@ -1300,6 +1300,161 @@
       .battery-text { font-size: 14px; font-weight: 500; color: var(--accent); }
       .battery-status { font-size: 11px; color: var(--muted); }
 
+      /* ─── FAMILY MANAGEMENT ─── */
+      .family-add-row {
+        display: flex; gap: 8px; margin-bottom: 16px;
+      }
+      .family-add-row input {
+        flex: 1; padding: 10px 14px; border-radius: 12px;
+        border: 1px solid var(--divider); background: rgba(0,0,0,0.02);
+        font-family: inherit; font-size: 14px; color: var(--accent);
+        outline: none; transition: border-color 0.2s;
+      }
+      .family-add-row input:focus { border-color: rgba(0,0,0,0.2); }
+      html.dark-mode .family-add-row input {
+        background: rgba(255,255,255,0.05); color: #fff;
+      }
+      .family-add-row input::placeholder { color: var(--muted); }
+      .family-add-btn {
+        padding: 10px 18px; border-radius: 12px; border: none;
+        background: #1a1a1a; color: #fff; font-family: inherit;
+        font-size: 13px; font-weight: 600; cursor: pointer;
+        transition: all 0.2s; white-space: nowrap;
+      }
+      .family-add-btn:active { transform: scale(0.95); }
+      html.dark-mode .family-add-btn { background: #fff; color: #000; }
+      .family-msg {
+        text-align: center; font-size: 12px; padding: 8px;
+        border-radius: 10px; margin-bottom: 12px; display: none;
+      }
+      .family-msg.error { display: block; background: rgba(239,68,68,0.08); color: #ef4444; }
+      .family-msg.success { display: block; background: rgba(52,211,153,0.08); color: #22c55e; }
+      .family-member-list {
+        display: flex; flex-direction: column; gap: 0;
+        background: var(--card); border-radius: 14px;
+        border: 1px solid var(--divider); overflow: hidden;
+      }
+      .family-member-item {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 12px 16px;
+      }
+      .family-member-item + .family-member-item { border-top: 1px solid var(--divider); }
+      .family-member-info {
+        display: flex; align-items: center; gap: 10px;
+      }
+      .family-member-avatar {
+        width: 32px; height: 32px; border-radius: 50%;
+        background: rgba(0,0,0,0.06); display: flex;
+        align-items: center; justify-content: center;
+        font-size: 14px; font-weight: 600; color: var(--muted);
+      }
+      html.dark-mode .family-member-avatar { background: rgba(255,255,255,0.1); }
+      .family-member-name { font-size: 14px; font-weight: 500; color: var(--accent); }
+      .family-remove-btn {
+        padding: 6px 12px; border-radius: 8px; border: none;
+        background: rgba(239,68,68,0.08); color: #ef4444;
+        font-family: inherit; font-size: 11px; font-weight: 600;
+        cursor: pointer; transition: all 0.2s;
+      }
+      .family-remove-btn:active { transform: scale(0.95); background: rgba(239,68,68,0.15); }
+      .family-empty {
+        text-align: center; padding: 32px 16px; color: var(--muted);
+        font-size: 13px;
+      }
+      .family-empty svg {
+        width: 40px; height: 40px; stroke: var(--muted); stroke-width: 1;
+        fill: none; opacity: 0.4; margin-bottom: 12px;
+      }
+
+      /* ─── SOS SLIDER (fullscreen only) ─── */
+      .sos-slider-wrap {
+        display: none; /* hidden by default */
+        position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%);
+        width: calc(100% - 48px); max-width: 390px; z-index: 99;
+      }
+      body.is-fullscreen .sos-slider-wrap { display: block; }
+      .sos-slider-track {
+        width: 100%; height: 64px; border-radius: 32px;
+        background: rgba(30,30,30,0.95);
+        border: 1px solid rgba(255,255,255,0.1);
+        position: relative; overflow: hidden;
+        box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+      }
+      .sos-slider-dots {
+        position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+        display: flex; gap: 8px; pointer-events: none;
+      }
+      .sos-slider-dots span {
+        width: 5px; height: 5px; border-radius: 50%;
+        background: rgba(255,255,255,0.2);
+      }
+      .sos-slider-label {
+        position: absolute; top: 50%; right: 24px; transform: translateY(-50%);
+        font-size: 15px; font-weight: 600; color: rgba(255,255,255,0.35);
+        pointer-events: none; letter-spacing: 0.5px;
+      }
+      .sos-slider-thumb {
+        width: 56px; height: 56px; border-radius: 50%;
+        background: linear-gradient(135deg, #a3e635, #34d399);
+        position: absolute; top: 4px; left: 4px;
+        cursor: grab; touch-action: none;
+        display: flex; align-items: center; justify-content: center;
+        box-shadow: 0 0 20px rgba(163,230,53,0.4);
+        transition: box-shadow 0.3s;
+        z-index: 2;
+      }
+      .sos-slider-thumb:active { cursor: grabbing; box-shadow: 0 0 30px rgba(163,230,53,0.6); }
+      .sos-slider-thumb svg {
+        width: 22px; height: 22px; stroke: rgba(0,0,0,0.6); stroke-width: 2.5; fill: none;
+      }
+
+      /* ─── SOS ALERT OVERLAY ─── */
+      .sos-alert-overlay {
+        position: fixed; inset: 0; z-index: 9999;
+        background: rgba(239,68,68,0.95);
+        display: flex; flex-direction: column;
+        align-items: center; justify-content: center;
+        gap: 16px; opacity: 0; pointer-events: none;
+        transition: opacity 0.3s;
+      }
+      .sos-alert-overlay.active { opacity: 1; pointer-events: auto; }
+      .sos-alert-overlay.shake { animation: sosShake 0.15s linear infinite; }
+      @keyframes sosShake {
+        0%, 100% { transform: translateX(0); }
+        25% { transform: translateX(-4px); }
+        75% { transform: translateX(4px); }
+      }
+      .sos-alert-icon {
+        width: 80px; height: 80px; border-radius: 50%;
+        background: rgba(255,255,255,0.2); display: flex;
+        align-items: center; justify-content: center;
+        animation: sosPulseAlert 1s ease infinite;
+      }
+      @keyframes sosPulseAlert {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.1); }
+      }
+      .sos-alert-icon svg {
+        width: 40px; height: 40px; stroke: #fff; stroke-width: 2; fill: none;
+      }
+      .sos-alert-title {
+        font-size: 28px; font-weight: 700; color: #fff;
+        letter-spacing: 1px;
+      }
+      .sos-alert-from {
+        font-size: 16px; color: rgba(255,255,255,0.85); font-weight: 500;
+      }
+      .sos-alert-time {
+        font-size: 12px; color: rgba(255,255,255,0.6); margin-top: 4px;
+      }
+      .sos-alert-dismiss {
+        margin-top: 24px; padding: 14px 40px; border-radius: 16px;
+        border: 2px solid rgba(255,255,255,0.4); background: rgba(255,255,255,0.15);
+        color: #fff; font-family: inherit; font-size: 15px; font-weight: 600;
+        cursor: pointer; transition: all 0.2s;
+      }
+      .sos-alert-dismiss:active { transform: scale(0.95); background: rgba(255,255,255,0.25); }
+
       /* ─── AI CHAT ─── */
       .chat-container {
         background: rgba(0,0,0,0.02);
@@ -1709,11 +1864,11 @@
           </div>
           <div class="widget-label" style="font-size: 13px; font-weight: 500; color: var(--accent); margin-top: 4px; text-transform: none;">Mobility</div>
         </div>
-        <div class="widget-card" onclick="openModal('guardian')" style="cursor: pointer; align-items: center; justify-content: center; gap: 8px;">
+        <div class="widget-card" onclick="openModal('family')" style="cursor: pointer; align-items: center; justify-content: center; gap: 8px;">
           <div class="widget-icon" style="width: 44px; height: 44px; border-radius: 12px;">
-            <svg viewBox="0 0 24 24" style="width: 20px; height: 20px; opacity: 1;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            <svg viewBox="0 0 24 24" style="width: 20px; height: 20px; opacity: 1;"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
           </div>
-          <div class="widget-label" style="font-size: 13px; font-weight: 500; color: var(--accent); margin-top: 4px; text-transform: none;">Safety</div>
+          <div class="widget-label" style="font-size: 13px; font-weight: 500; color: var(--accent); margin-top: 4px; text-transform: none;">Family</div>
         </div>
         <div class="widget-card" onclick="openModal('companion')" style="cursor: pointer; align-items: center; justify-content: center; gap: 8px;">
           <div class="widget-icon" style="width: 44px; height: 44px; border-radius: 12px;">
@@ -1831,15 +1986,14 @@
           ],
         },
         {
-          id: "guardian",
-          title: "Guardian Safety System",
-          desc: "Emergency response & monitoring",
-          icon: '<svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
+          id: "family",
+          title: "Manage Family",
+          desc: "Emergency contacts & SOS alerts",
+          icon: '<svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
           features: [
-            "Emergency SOS",
-            "Risk Level Indicator",
-            "Fall Detection Status",
-            "Battery Health Monitor",
+            "Add Family Members",
+            "SOS Alert System",
+            "Real-time Notifications",
           ],
         },
         {
@@ -1883,7 +2037,7 @@
           vision: "Vision",
           mobility: "Mobility",
           recognition: "Recognition",
-          guardian: "Safety",
+          family: "Family",
           companion: "AI Chat",
           personalization: "Settings",
           architecture: "System",
@@ -1931,7 +2085,7 @@
         if (id === "vision") body.innerHTML += buildVisionContent();
         if (id === "mobility") body.innerHTML += buildMobilityContent();
         if (id === "recognition") body.innerHTML += buildRecognitionContent();
-        if (id === "guardian") body.innerHTML += buildGuardianContent();
+        if (id === "family") body.innerHTML += buildFamilyContent();
         if (id === "companion") body.innerHTML += buildCompanionContent();
         if (id === "personalization")
           body.innerHTML += buildPersonalizationContent();
@@ -2066,32 +2220,23 @@
 </div>`;
       }
 
-      function buildGuardianContent() {
+      function buildFamilyContent() {
         return `
-<div class="sos-container">
+<div class="modal-section">
+<div class="modal-section-title">Add Family Member</div>
+<div class="family-add-row">
+  <input type="text" id="familyMemberInput" placeholder="Enter username" autocomplete="off" />
+  <button class="family-add-btn" onclick="addFamilyMember()">Add</button>
+</div>
+<div class="family-msg" id="familyMsg"></div>
+</div>
+<div class="modal-section">
+<div class="modal-section-title">Your Family Members</div>
+<div id="familyMembersList"></div>
+</div>
+<div class="sos-container" style="margin-top: 12px;">
 <button class="sos-btn" onclick="triggerSOS(this)">SOS</button>
-<div style="font-size:11px;color:var(--muted)">Tap for Emergency Alert</div>
-</div>
-<div class="modal-section">
-<div class="modal-section-title">Risk Level</div>
-<div class="risk-meter">
-<div class="risk-bar"><div class="risk-fill" id="riskFill"></div></div>
-<div class="risk-label"><span>Low</span><span>Medium</span><span>Critical</span></div>
-</div>
-</div>
-<div class="modal-section">
-<div class="modal-section-title">Fall Detection</div>
-<div class="status-badge-inline">Active — No incidents detected</div>
-</div>
-<div class="modal-section">
-<div class="modal-section-title">Battery Health</div>
-<div class="battery-panel">
-<div class="battery-icon"><div class="battery-level" id="batteryLevel" style="width:78%"></div></div>
-<div>
-<div class="battery-text" id="batteryText">78%</div>
-<div class="battery-status">Estimated 5h 20m remaining</div>
-</div>
-</div>
+<div style="font-size:11px;color:var(--muted)">Tap to send alert to your family</div>
 </div>`;
       }
 
@@ -2691,7 +2836,7 @@
       function initModalInteractions(id) {
         if (id === "vision") initVision();
         if (id === "mobility") initMobility();
-        if (id === "guardian") initGuardian();
+        if (id === "family") initFamily();
         if (id === "personalization") initSliders();
       }
 
@@ -2757,31 +2902,175 @@
         }
       }
 
-      function triggerSOS(btn) {
-        btn.style.background = "rgba(255,255,255,0.2)";
-        btn.textContent = "SENT";
-        setTimeout(() => {
-          btn.style.background = "";
-          btn.textContent = "SOS";
-        }, 2000);
+      // ===== FAMILY MANAGEMENT & SOS SYSTEM =====
+      function getLoggedInUsername() {
+        return localStorage.getItem('visionAidUser') || null;
       }
 
-      function initGuardian() {
-        function update() {
-          if (!activeModal || activeModal !== "guardian") return;
-          const risk = Math.floor(Math.random() * 40 + 5);
-          const rf = document.getElementById("riskFill");
-          if (rf) rf.style.width = risk + "%";
-          const bat = Math.max(10, Math.floor(Math.random() * 90 + 10));
-          const bl = document.getElementById("batteryLevel");
-          const bt = document.getElementById("batteryText");
-          if (bl) bl.style.width = bat + "%";
-          if (bt) bt.textContent = bat + "%";
+      async function addFamilyMember() {
+        const input = document.getElementById('familyMemberInput');
+        const msgEl = document.getElementById('familyMsg');
+        const username = getLoggedInUsername();
+        if (!username) {
+          showFamilyMsg('Please log in first', 'error');
+          return;
         }
-        update();
-        const iv = setInterval(update, 4000);
-        modalIntervals.push(iv);
+        const memberUsername = (input.value || '').trim();
+        if (!memberUsername) {
+          showFamilyMsg('Please enter a username', 'error');
+          return;
+        }
+        try {
+          const res = await fetch('/api/family/add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, memberUsername })
+          });
+          const data = await res.json();
+          if (data.error) {
+            showFamilyMsg(data.error, 'error');
+          } else {
+            input.value = '';
+            showFamilyMsg(`${memberUsername} added to your family`, 'success');
+            renderFamilyMembers(data.members);
+          }
+        } catch (err) {
+          showFamilyMsg('Failed to add member. Try again.', 'error');
+        }
       }
+
+      async function removeFamilyMember(memberUsername) {
+        const username = getLoggedInUsername();
+        if (!username) return;
+        try {
+          const res = await fetch('/api/family/remove', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, memberUsername })
+          });
+          const data = await res.json();
+          if (data.success) {
+            showFamilyMsg(`${memberUsername} removed`, 'success');
+            renderFamilyMembers(data.members);
+          }
+        } catch (err) {
+          showFamilyMsg('Failed to remove member', 'error');
+        }
+      }
+
+      function renderFamilyMembers(members) {
+        const container = document.getElementById('familyMembersList');
+        if (!container) return;
+        if (!members || members.length === 0) {
+          container.innerHTML = `
+            <div class="family-empty">
+              <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              <div>No family members added yet</div>
+              <div style="font-size:11px;margin-top:4px;opacity:0.7;">Add someone to enable SOS alerts</div>
+            </div>`;
+          return;
+        }
+        container.innerHTML = `<div class="family-member-list">${members.map(m => `
+          <div class="family-member-item">
+            <div class="family-member-info">
+              <div class="family-member-avatar">${m.charAt(0).toUpperCase()}</div>
+              <div class="family-member-name">${m}</div>
+            </div>
+            <button class="family-remove-btn" onclick="removeFamilyMember('${m}')">Remove</button>
+          </div>`).join('')}</div>`;
+      }
+
+      function showFamilyMsg(text, type) {
+        const el = document.getElementById('familyMsg');
+        if (!el) return;
+        el.textContent = text;
+        el.className = 'family-msg ' + type;
+        setTimeout(() => { el.className = 'family-msg'; }, 4000);
+      }
+
+      async function triggerSOS(btn) {
+        const username = getLoggedInUsername();
+        if (!username) {
+          showFamilyMsg('Please log in first to send SOS', 'error');
+          return;
+        }
+        try {
+          const res = await fetch('/api/sos/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username })
+          });
+          const data = await res.json();
+          if (data.error === 'NO_FAMILY') {
+            showFamilyMsg('Add a family member first before sending SOS', 'error');
+            return;
+          }
+          if (data.error) {
+            showFamilyMsg(data.error || data.message, 'error');
+            return;
+          }
+          btn.style.background = 'rgba(52,211,153,0.2)';
+          btn.style.borderColor = 'rgba(52,211,153,0.4)';
+          btn.style.color = '#22c55e';
+          btn.textContent = 'SENT ✓';
+          showFamilyMsg(`SOS sent to ${data.notified} family member(s)`, 'success');
+          setTimeout(() => {
+            btn.style.background = '';
+            btn.style.borderColor = '';
+            btn.style.color = '';
+            btn.textContent = 'SOS';
+          }, 3000);
+        } catch (err) {
+          showFamilyMsg('Failed to send SOS. Check your connection.', 'error');
+        }
+      }
+
+      async function sendSOSFromSlider() {
+        const username = getLoggedInUsername();
+        if (!username) return;
+        try {
+          const res = await fetch('/api/sos/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username })
+          });
+          const data = await res.json();
+          if (data.error === 'NO_FAMILY') {
+            alert('Add a family member first before sending SOS');
+            return;
+          }
+          if (data.success) {
+            // Visual feedback on slider
+            const track = document.querySelector('.sos-slider-track');
+            if (track) {
+              track.style.background = 'rgba(52,211,153,0.3)';
+              track.style.borderColor = 'rgba(52,211,153,0.5)';
+              const label = document.querySelector('.sos-slider-label');
+              if (label) label.textContent = 'SOS Sent ✓';
+              setTimeout(() => {
+                track.style.background = '';
+                track.style.borderColor = '';
+                if (label) label.textContent = 'Send';
+              }, 3000);
+            }
+          }
+        } catch (err) {
+          console.error('SOS slider send failed:', err);
+        }
+      }
+
+      function initFamily() {
+        const username = getLoggedInUsername();
+        if (!username) {
+          renderFamilyMembers([]);
+          return;
+        }
+        fetch(`/api/family/members?username=${encodeURIComponent(username)}`)
+          .then(r => r.json())
+          .then(data => renderFamilyMembers(data.members || []))
+          .catch(() => renderFamilyMembers([]));
+      }
+
 
       // ===== MAIN SEND CHAT =====
       async function sendChat() {
@@ -3447,6 +3736,143 @@ function navSOS(el) {
          }, 2000);
       });
     </script>
+
+    <!-- SOS SLIDER (shown only in fullscreen mode via CSS) -->
+    <div class="sos-slider-wrap" id="sosSliderWrap">
+      <div class="sos-slider-track" id="sosSliderTrack">
+        <div class="sos-slider-dots"><span></span><span></span><span></span><span></span><span></span></div>
+        <div class="sos-slider-label">Send</div>
+        <div class="sos-slider-thumb" id="sosSliderThumb">
+          <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- SOS ALERT OVERLAY (shown when receiving SOS from family) -->
+    <div class="sos-alert-overlay" id="sosAlertOverlay">
+      <div class="sos-alert-icon">
+        <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      </div>
+      <div class="sos-alert-title">🚨 SOS ALERT</div>
+      <div class="sos-alert-from" id="sosAlertFrom"></div>
+      <div class="sos-alert-time" id="sosAlertTime"></div>
+      <button class="sos-alert-dismiss" onclick="dismissSOSAlert()">Dismiss</button>
+    </div>
+
+    <!-- SOS SLIDER INTERACTION + FAMILY SSE LISTENER -->
+    <script>
+      // ── SOS SLIDER DRAG ──
+      (function() {
+        const thumb = document.getElementById('sosSliderThumb');
+        const track = document.getElementById('sosSliderTrack');
+        if (!thumb || !track) return;
+
+        let dragging = false;
+        let startX = 0;
+        let currentX = 4; // initial left offset
+
+        function onStart(e) {
+          dragging = true;
+          startX = (e.touches ? e.touches[0].clientX : e.clientX) - currentX;
+          thumb.style.transition = 'none';
+        }
+
+        function onMove(e) {
+          if (!dragging) return;
+          const x = (e.touches ? e.touches[0].clientX : e.clientX) - startX;
+          const maxX = track.offsetWidth - thumb.offsetWidth - 4;
+          currentX = Math.max(4, Math.min(x, maxX));
+          thumb.style.left = currentX + 'px';
+
+          // Check if slid to the end
+          if (currentX >= maxX - 4) {
+            dragging = false;
+            thumb.style.transition = 'left 0.4s cubic-bezier(0.4,0,0.2,1)';
+            thumb.style.left = '4px';
+            currentX = 4;
+            sendSOSFromSlider();
+          }
+        }
+
+        function onEnd() {
+          if (!dragging) return;
+          dragging = false;
+          thumb.style.transition = 'left 0.4s cubic-bezier(0.4,0,0.2,1)';
+          thumb.style.left = '4px';
+          currentX = 4;
+        }
+
+        thumb.addEventListener('mousedown', onStart);
+        thumb.addEventListener('touchstart', onStart, { passive: true });
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('touchmove', onMove, { passive: true });
+        document.addEventListener('mouseup', onEnd);
+        document.addEventListener('touchend', onEnd);
+      })();
+
+      // ── FAMILY SOS SSE LISTENER ──
+      let sosVibrationInterval = null;
+
+      function startSOSListener() {
+        const username = localStorage.getItem('visionAidUser');
+        if (!username) return;
+
+        const backendUrl = localStorage.getItem("visionAidBackendUrl") || window.location.origin;
+        const sosSSE = new EventSource(`${backendUrl}/api/family/stream?username=${encodeURIComponent(username)}`);
+
+        sosSSE.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.event === 'SOS_ALERT') {
+              showSOSAlert(data.from, data.timestamp);
+            }
+          } catch (e) {}
+        };
+
+        sosSSE.onerror = () => {
+          console.log('[SOS-SSE] Reconnecting...');
+        };
+      }
+
+      function showSOSAlert(fromUser, timestamp) {
+        const overlay = document.getElementById('sosAlertOverlay');
+        const fromEl = document.getElementById('sosAlertFrom');
+        const timeEl = document.getElementById('sosAlertTime');
+        if (!overlay) return;
+
+        fromEl.textContent = `${fromUser} is in danger!`;
+        timeEl.textContent = new Date(timestamp).toLocaleTimeString();
+
+        overlay.classList.add('active', 'shake');
+
+        // Vibrate the device if supported
+        if (navigator.vibrate) {
+          sosVibrationInterval = setInterval(() => {
+            navigator.vibrate([300, 100, 300, 100, 300]);
+          }, 1500);
+        }
+      }
+
+      function dismissSOSAlert() {
+        const overlay = document.getElementById('sosAlertOverlay');
+        if (overlay) overlay.classList.remove('active', 'shake');
+        if (sosVibrationInterval) {
+          clearInterval(sosVibrationInterval);
+          sosVibrationInterval = null;
+        }
+        if (navigator.vibrate) navigator.vibrate(0);
+      }
+
+      // Start SSE listener on page load
+      document.addEventListener('DOMContentLoaded', startSOSListener);
+
+      // Re-start SSE listener after login
+      const _origDoAuth = window.doAuth;
+      if (typeof doAuth === 'function') {
+        const _savedDoAuth = doAuth;
+      }
+    </script>
+
     <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
     <script src="/js/VisionEngine.js"></script>
   </body>

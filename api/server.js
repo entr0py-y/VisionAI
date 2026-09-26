@@ -634,7 +634,118 @@ app.post('/api/auth/signup', async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// POST /api/ai/chat — Streaming general chat (existing)
+// FAMILY MANAGEMENT & SOS SYSTEM
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// In-memory family store: { username: [familyMember1, familyMember2, ...] }
+const familyStore = {};
+
+// SSE clients keyed by username for targeted SOS alerts
+let sosStreamClients = {}; // { username: [res1, res2, ...] }
+
+// GET /api/family/stream?username=X — SSE stream for receiving SOS alerts
+app.get('/api/family/stream', (req, res) => {
+  const username = req.query.username;
+  if (!username) return res.status(400).json({ error: 'Username required' });
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  if (!sosStreamClients[username]) sosStreamClients[username] = [];
+  sosStreamClients[username].push(res);
+
+  req.on('close', () => {
+    sosStreamClients[username] = (sosStreamClients[username] || []).filter(c => c !== res);
+    if (sosStreamClients[username].length === 0) delete sosStreamClients[username];
+  });
+});
+
+// GET /api/family/members?username=X — Get family members list
+app.get('/api/family/members', (req, res) => {
+  const username = req.query.username;
+  if (!username) return res.status(400).json({ error: 'Username required' });
+  const members = familyStore[username] || [];
+  res.json({ members });
+});
+
+// POST /api/family/add — Add a family member
+app.post('/api/family/add', async (req, res) => {
+  try {
+    const { username, memberUsername } = req.body;
+    if (!username || !memberUsername) return res.status(400).json({ error: 'Both usernames required' });
+    if (username === memberUsername) return res.status(400).json({ error: 'You cannot add yourself' });
+
+    // Check if the member exists in Supabase
+    const { supabase } = require('../lib/supabaseClient.cjs');
+    if (supabase) {
+      const { data: profiles, error } = await supabase
+        .from('profiles')
+        .select('username')
+        .eq('username', memberUsername);
+      
+      if (error || !profiles || profiles.length === 0) {
+        return res.status(404).json({ error: `No user found with username "${memberUsername}"` });
+      }
+    }
+
+    if (!familyStore[username]) familyStore[username] = [];
+    
+    // Check if already added
+    if (familyStore[username].includes(memberUsername)) {
+      return res.status(400).json({ error: `${memberUsername} is already in your family` });
+    }
+
+    familyStore[username].push(memberUsername);
+    res.json({ success: true, members: familyStore[username] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/family/remove — Remove a family member
+app.post('/api/family/remove', (req, res) => {
+  const { username, memberUsername } = req.body;
+  if (!username || !memberUsername) return res.status(400).json({ error: 'Both usernames required' });
+
+  if (!familyStore[username]) return res.json({ success: true, members: [] });
+
+  familyStore[username] = familyStore[username].filter(m => m !== memberUsername);
+  res.json({ success: true, members: familyStore[username] });
+});
+
+// POST /api/sos/send — Send SOS alert to all family members
+app.post('/api/sos/send', (req, res) => {
+  const { username, location } = req.body;
+  if (!username) return res.status(400).json({ error: 'Username required' });
+
+  const members = familyStore[username] || [];
+  if (members.length === 0) {
+    return res.status(400).json({ error: 'NO_FAMILY', message: 'Add a family member first before sending SOS' });
+  }
+
+  const alertData = {
+    event: 'SOS_ALERT',
+    from: username,
+    location: location || null,
+    timestamp: new Date().toISOString()
+  };
+
+  let notified = 0;
+  members.forEach(member => {
+    const clients = sosStreamClients[member] || [];
+    clients.forEach(client => {
+      client.write(`data: ${JSON.stringify(alertData)}\n\n`);
+      notified++;
+    });
+  });
+
+  console.log(`[SOS] ${username} sent SOS to ${members.length} family members (${notified} active connections)`);
+  res.json({ success: true, notified: members.length, activeConnections: notified });
+});
+
+
 // ═══════════════════════════════════════════════════════════════════════════════
 app.post('/api/ai/chat', async (req, res) => {
   try {
