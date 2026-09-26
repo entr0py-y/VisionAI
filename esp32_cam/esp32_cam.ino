@@ -6,8 +6,8 @@
 
 // ===========================
 // CONFIGURATION
-const char *ssid = "vision";
-const char *password = "987654321";
+const char *ssid = "Heisenberg";
+const char *password = "11111111";
 
 // Cloud Server Configuration
 const char *serverIp = "visionaid-5ut9.onrender.com";
