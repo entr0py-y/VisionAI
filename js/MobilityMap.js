@@ -72,10 +72,10 @@ const MobilityMap = (() => {
       attributionControl: false,
     }).setView([28.6139, 77.2090], 14); // Default center (will be overridden by GPS)
 
-    // High-contrast dark map tiles (CartoDB Dark Matter)
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    // High-contrast dark map tiles using OpenStreetMap with a CSS inversion class
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
-      subdomains: 'abcd',
+      className: 'osm-dark-map',
     }).addTo(map);
 
     // Start watching user position
