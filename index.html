@@ -283,6 +283,7 @@
       .widgets-row {
         display: grid;
         grid-template-columns: repeat(2, 1fr);
+        grid-auto-rows: 1fr;
         gap: 6px;
         margin-bottom: 8px;
         padding: 0;
@@ -1734,31 +1735,7 @@
         </svg>
         <span class="nav-label">Home</span>
       </div>
-      <div class="nav-item" data-tab="scan" onclick="switchTab(this)">
-        <svg viewBox="0 0 24 24">
-          <path d="M1 4v-1a2 2 0 0 1 2-2h4" />
-          <path d="M17 1h4a2 2 0 0 1 2 2v1" />
-          <path d="M23 17v4a2 2 0 0 1-2 2h-4" />
-          <path d="M7 23H3a2 2 0 0 1-2-2v-4" />
-          <line x1="1" y1="12" x2="23" y2="12" />
-        </svg>
-        <span class="nav-label">Scan</span>
-      </div>
-      <div class="nav-item nav-sos" data-tab="sos" onclick="navSOS(this)">
-        <svg viewBox="0 0 24 24">
-          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-        </svg>
-        <span class="nav-label">SOS</span>
-      </div>
-      <div class="nav-item" data-tab="ai" onclick="switchTab(this)">
-        <svg viewBox="0 0 24 24">
-          <circle cx="12" cy="12" r="3" />
-          <path
-            d="M12 1v4m0 14v4M4.22 4.22l2.83 2.83m9.9 9.9l2.83 2.83M1 12h4m14 0h4M4.22 19.78l2.83-2.83m9.9-9.9l2.83-2.83"
-          />
-        </svg>
-        <span class="nav-label">AI</span>
-      </div>
+
       <div class="nav-item" data-tab="settings" onclick="switchTab(this)">
         <svg viewBox="0 0 24 24">
           <circle cx="12" cy="12" r="3" />
