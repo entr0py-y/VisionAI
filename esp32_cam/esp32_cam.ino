@@ -58,32 +58,15 @@ void handleCapture() {
     return;
   }
 
-  // Send JPEG directly to client via raw WiFiClient for efficiency
-  WiFiClient client = server.client();
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.sendHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  server.sendHeader("Cache-Control", "no-cache, no-store");
   
-  String head = "HTTP/1.1 200 OK\r\n";
-  head += "Content-Type: image/jpeg\r\n";
-  head += "Content-Length: " + String(fb->len) + "\r\n";
-  head += "Access-Control-Allow-Origin: *\r\n";
-  head += "Access-Control-Allow-Methods: GET, OPTIONS\r\n";
-  head += "Cache-Control: no-cache, no-store\r\n";
-  head += "Connection: close\r\n\r\n";
-  
-  client.print(head);
-  
-  // Stream JPEG data in chunks
-  uint8_t *fbBuf = fb->buf;
-  size_t fbLen = fb->len;
-  for (size_t n = 0; n < fbLen; n += 1024) {
-    if (n + 1024 <= fbLen) {
-      client.write(fbBuf + n, 1024);
-    } else {
-      client.write(fbBuf + n, fbLen - n);
-    }
-  }
+  // Send the JPEG using the WebServer's built-in binary send method
+  server.send(200, "image/jpeg", (const char *)fb->buf, fb->len);
   
   esp_camera_fb_return(fb);
-  Serial.printf("[CAM] Served JPEG: %u bytes\n", fbLen);
+  Serial.printf("[CAM] Served JPEG: %u bytes\n", fb->len);
 }
 
 // GET /status — Health check for the phone to verify CAM is online
