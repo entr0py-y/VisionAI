@@ -686,13 +686,13 @@ app.post('/api/family/add', async (req, res) => {
           .select('username')
           .ilike('username', memberUsername);
         
-        if (error) {
-          console.warn('Supabase check failed (maybe table missing), skipping check:', error.message);
-        } else if (!profiles || profiles.length === 0) {
-          return res.status(404).json({ error: `No user found with username "${memberUsername}"` });
+        if (error || !profiles || profiles.length === 0) {
+          return res.status(404).json({ 
+            error: `No user found with username "${memberUsername}". (Make sure they have an account and your Supabase 'profiles' table is created)` 
+          });
         }
       } catch (e) {
-        console.warn('Supabase check exception:', e.message);
+        return res.status(500).json({ error: "Failed to verify user in database." });
       }
     }
 
