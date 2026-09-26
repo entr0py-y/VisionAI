@@ -1,6 +1,8 @@
 #include "esp_camera.h"
 #include <WiFi.h>
 #include <WebServer.h>
+#include "soc/soc.h"          // Disable brownout detector for USB-UART power stability
+#include "soc/rtc_cntl_reg.h" // Disable brownout detector for USB-UART power stability
 
 // ===========================
 // CONFIGURATION — SoftAP Mode (ESP32-CAM creates VisionAID Wi-Fi)
@@ -186,6 +188,7 @@ void initCameraHardware() {
 }
 
 void setup() {
+  WRITE_PERI_REG(RTC_CNTL_BROWNOUT_REG, 0); // Disable brownout detector to prevent voltage dip resets on USB-UART adapter
   Serial.begin(115200);
   Serial.setDebugOutput(true); // Enables low-level ESP-IDF camera driver logs in Serial Monitor
   delay(1000); // Allow serial monitor to catch boot messages
