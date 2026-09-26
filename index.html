@@ -3884,7 +3884,13 @@ function navSOS(el) {
                const data = await resp.json().catch(() => ({}));
                window.espCamOnline = (data.cam_ok !== false);
                if (data.cam_ok === false) {
-                 console.warn("[CAM Status] ESP32-CAM is online, but camera sensor init failed!", data);
+                 const errHex = "0x" + (data.cam_err ? data.cam_err.toString(16).toUpperCase() : "UNKNOWN");
+                 const reason = (data.cam_err === 261 || data.cam_err === 0x105) 
+                   ? "SENSOR NOT DETECTED (Check OV2640 ribbon cable)" 
+                   : (data.cam_err === 259 || data.cam_err === 0x103)
+                   ? "OUT OF MEMORY (Enable PSRAM in Arduino IDE)"
+                   : "Hardware error";
+                 console.warn(`[CAM Status] ESP32-CAM is online, but camera sensor failed: ${errHex} (${reason})`, data);
                }
              } else {
                window.espCamOnline = false;
