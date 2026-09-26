@@ -1,17 +1,17 @@
 #include "esp_camera.h"
-#include <HTTPClient.h>
-#include <WebSocketsClient.h> // OPTIMIZED: WebSocket replaces HTTP polling
 #include <WiFi.h>
-#include <WiFiClientSecure.h>
+#include <WebServer.h>
 
 // ===========================
-// CONFIGURATION
-const char *ssid = "Heisenberg";
-const char *password = "11111111";
+// CONFIGURATION — Connect to VisionAID SoftAP
+// ===========================
+const char *ssid = "VisionAID";
+const char *password = "visionaid123";
 
-// Cloud Server Configuration
-const char *serverIp = "visionaid-5ut9.onrender.com";
-const int serverPort = 443;
+// Static IP on the SoftAP network (ESP32-MIC is 192.168.4.1)
+IPAddress local_IP(192, 168, 4, 2);
+IPAddress gateway(192, 168, 4, 1);
+IPAddress subnet(255, 255, 255, 0);
 
 // ===========================
 // CAMERA PINS (AI-Thinker)
@@ -33,52 +33,108 @@ const int serverPort = 443;
 #define HREF_GPIO_NUM 23
 #define PCLK_GPIO_NUM 22
 
-// OPTIMIZED: WebSocket client for instant capture commands
-WebSocketsClient webSocket;
-bool wsConnected = false;
+// Local HTTP server for serving captured images
+WebServer server(80);
 
-// OPTIMIZED: WebSocket event handler — receives CAPTURE_NOW / PRELOAD_CAPTURE
-void webSocketEvent(WStype_t type, uint8_t *payload, size_t length) {
-  switch (type) {
-  case WStype_DISCONNECTED:
-    Serial.println("[WS-CAM] Disconnected from server!");
-    wsConnected = false;
-    break;
-  case WStype_CONNECTED:
-    Serial.printf("[WS-CAM] Connected to %s\n", payload);
-    wsConnected = true;
-    // Identify ourselves as ESP32_CAM so server routes capture commands here
-    webSocket.sendTXT("{\"type\":\"ESP32_CAM\"}");
-    Serial.println("[WS-CAM] Sent ESP32_CAM identification");
-    break;
-  case WStype_TEXT: {
-    String msg = String((char *)payload);
-    Serial.printf("[WS-CAM] Received: %s\n", msg.c_str());
+// ===========================
+// HTTP HANDLERS
+// ===========================
 
-    // OPTIMIZED: Instant capture on WebSocket push — zero polling delay
-    if (msg == "CAPTURE_NOW" || msg == "PRELOAD_CAPTURE") {
-      Serial.println(
-          "\n[TRIGGER] Received capture command via WebSocket. Capturing...");
-      captureAndSendImage(msg == "PRELOAD_CAPTURE");
+// GET /capture — Flush stale frame, capture fresh JPEG, return it
+void handleCapture() {
+  Serial.println("[CAM] Capture requested...");
+  
+  // Flush stale frame (since fb_count is 1, the oldest frame is buffered)
+  camera_fb_t *stale = esp_camera_fb_get();
+  if (stale) {
+    esp_camera_fb_return(stale);
+  }
+
+  // Capture fresh real-time frame
+  camera_fb_t *fb = esp_camera_fb_get();
+  if (!fb) {
+    server.send(500, "text/plain", "Camera capture failed");
+    Serial.println("[CAM] Capture FAILED!");
+    return;
+  }
+
+  // Send JPEG directly to client via raw WiFiClient for efficiency
+  WiFiClient client = server.client();
+  
+  String head = "HTTP/1.1 200 OK\r\n";
+  head += "Content-Type: image/jpeg\r\n";
+  head += "Content-Length: " + String(fb->len) + "\r\n";
+  head += "Access-Control-Allow-Origin: *\r\n";
+  head += "Access-Control-Allow-Methods: GET, OPTIONS\r\n";
+  head += "Cache-Control: no-cache, no-store\r\n";
+  head += "Connection: close\r\n\r\n";
+  
+  client.print(head);
+  
+  // Stream JPEG data in chunks
+  uint8_t *fbBuf = fb->buf;
+  size_t fbLen = fb->len;
+  for (size_t n = 0; n < fbLen; n += 1024) {
+    if (n + 1024 <= fbLen) {
+      client.write(fbBuf + n, 1024);
+    } else {
+      client.write(fbBuf + n, fbLen - n);
     }
-    break;
   }
-  }
+  
+  esp_camera_fb_return(fb);
+  Serial.printf("[CAM] Served JPEG: %u bytes\n", fbLen);
+}
+
+// GET /status — Health check for the phone to verify CAM is online
+void handleStatus() {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  char json[128];
+  snprintf(json, sizeof(json), 
+    "{\"status\":\"online\",\"type\":\"ESP32_CAM\",\"heap\":%u}",
+    ESP.getFreeHeap());
+  server.send(200, "application/json", json);
+}
+
+// OPTIONS — CORS preflight handler
+void handleCORS() {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  server.sendHeader("Access-Control-Allow-Headers", "*");
+  server.send(204);
 }
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("Starting ESP32-CAM (WebSocket Mode)...");
+  Serial.println("Starting ESP32-CAM (SoftAP Client Mode)...");
 
-  // 1. CONNECT TO WIFI
+  // 1. CONNECT TO VisionAID NETWORK (created by ESP32-MIC)
+  WiFi.mode(WIFI_STA);
+  WiFi.config(local_IP, gateway, subnet);
   WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
+  
+  Serial.printf("[WIFI] Connecting to '%s'...\n", ssid);
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 40) {
     delay(500);
     Serial.print(".");
+    attempts++;
   }
-  Serial.println("\nWiFi Connected!");
-  Serial.print("IP Address: ");
-  Serial.println(WiFi.localIP());
+  
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("\n[WIFI] Initial connect failed. Retrying indefinitely...");
+    Serial.println("[WIFI] Make sure ESP32-MIC is powered on and broadcasting VisionAID network.");
+    while (WiFi.status() != WL_CONNECTED) {
+      WiFi.disconnect();
+      delay(1000);
+      WiFi.begin(ssid, password);
+      delay(5000);
+      Serial.print("R");
+    }
+  }
+  
+  Serial.println("\n[WIFI] Connected to VisionAID!");
+  Serial.printf("[WIFI] IP Address: %s\n", WiFi.localIP().toString().c_str());
 
   // 2. CONFIGURE CAMERA
   camera_config_t config;
@@ -104,8 +160,7 @@ void setup() {
   config.pixel_format = PIXFORMAT_JPEG;
   if (psramFound()) {
     config.frame_size = FRAMESIZE_VGA;
-    config.jpeg_quality =
-        12; // Lowered from 10 to 12 to reduce file size & latency
+    config.jpeg_quality = 12;
     config.fb_count = 1;
   } else {
     config.frame_size = FRAMESIZE_VGA;
@@ -119,7 +174,7 @@ void setup() {
   } else {
     Serial.println("Camera initialized.");
     
-    // OPTIMIZED: Perform image inversion via hardware to avoid Node.js latency
+    // Perform image inversion via hardware
     sensor_t * s = esp_camera_sensor_get();
     if (s) {
       s->set_vflip(s, 1);
@@ -127,100 +182,40 @@ void setup() {
     }
   }
 
-  // 3. OPTIMIZED: Connect to server via WebSocket (same path as ESP32-MIC)
-  // setInsecure() skips SSL cert verification — required for Render's rotating certs
-  webSocket.beginSSL(serverIp, serverPort, "/api/pi/ws");
-  webSocket.onEvent(webSocketEvent);
-  webSocket.setReconnectInterval(5000);
-  Serial.println("[WS-CAM] WebSocket client started, waiting for connection...");
+  // 3. START LOCAL HTTP SERVER
+  server.on("/capture", HTTP_GET, handleCapture);
+  server.on("/capture", HTTP_OPTIONS, handleCORS);
+  server.on("/status", HTTP_GET, handleStatus);
+  server.on("/status", HTTP_OPTIONS, handleCORS);
+  server.begin();
+  
+  Serial.println("\n========================================");
+  Serial.println("  ESP32-CAM Ready (SoftAP Client)!");
+  Serial.printf("  Connected to: %s\n", ssid);
+  Serial.printf("  Capture URL: http://%s/capture\n", WiFi.localIP().toString().c_str());
+  Serial.printf("  Status URL:  http://%s/status\n", WiFi.localIP().toString().c_str());
+  Serial.println("========================================\n");
 }
 
-unsigned long lastCamPing = 0;
-
-// OPTIMIZED: No more HTTP polling — just service WebSocket
 void loop() {
-  webSocket.loop();
-
+  server.handleClient();
+  
+  // Auto-reconnect to VisionAID network if disconnected
   if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("[WIFI] Disconnected from VisionAID! Reconnecting...");
+    WiFi.disconnect();
     delay(1000);
-    return;
-  }
-
-  // Send a keep-alive ping every 5 seconds so the dashboard knows we are online
-  // We send the ID payload so the server re-registers us if it ever drops state
-  if (wsConnected && (millis() - lastCamPing > 5000)) {
-    webSocket.sendTXT("{\"type\":\"ESP32_CAM\"}");
-    lastCamPing = millis();
-  }
-}
-
-void captureAndSendImage(bool isPreload) {
-  // FLUSH STALE FRAME: Since fb_count is 1, the camera driver buffers the
-  // oldest unseen frame. We grab the existing frame and return it immediately
-  // to clear the buffer.
-  camera_fb_t *stale_fb = esp_camera_fb_get();
-  if (stale_fb) {
-    esp_camera_fb_return(stale_fb);
-  }
-
-  // NOW GRAB THE CURRENT REAL-TIME FRAME
-  camera_fb_t *fb = esp_camera_fb_get();
-  if (!fb) {
-    Serial.println("Camera capture failed");
-    return;
-  }
-
-  Serial.printf("Captured JPEG: %u bytes (preload: %s)\n", fb->len,
-                isPreload ? "yes" : "no");
-
-  // OPTIMIZED: Add preload query param for server to distinguish pre-warm
-  // captures
-  String boundary = "----ESP32CamBoundary";
-  String head = "--" + boundary + "\r\n";
-  head += "Content-Disposition: form-data; name=\"image\"; "
-          "filename=\"capture.jpg\"\r\n";
-  head += "Content-Type: image/jpeg\r\n\r\n";
-  String tail = "\r\n--" + boundary + "--\r\n";
-  uint32_t totalLen = head.length() + fb->len + tail.length();
-
-  WiFiClientSecure client2;
-  client2.setInsecure(); // Required for Render HTTPS Upload
-
-  if (client2.connect(serverIp, serverPort)) {
-    String path =
-        isPreload ? "/api/pi/image-input?preload=true" : "/api/pi/image-input";
-    client2.print("POST " + path + " HTTP/1.1\r\n");
-    client2.print("Host: " + String(serverIp) + "\r\n");
-    client2.print("Connection: close\r\n"); // FORCE CLOUDFLARE TO STOP WAITING
-    client2.print("Content-Length: " + String(totalLen) + "\r\n");
-    client2.print("Content-Type: multipart/form-data; boundary=" + boundary +
-                  "\r\n\r\n");
-    client2.print(head);
-
-    // Write JPEG bytes in chunks
-    uint8_t *fbBuf = fb->buf;
-    size_t fbLen = fb->len;
-    for (size_t n = 0; n < fbLen; n = n + 1024) {
-      if (n + 1024 <= fbLen) {
-        client2.write(fbBuf, 1024);
-        fbBuf += 1024;
-      } else {
-        size_t remainder = fbLen % 1024;
-        client2.write(fbBuf, remainder);
-      }
+    WiFi.begin(ssid, password);
+    
+    int attempts = 0;
+    while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+      delay(500);
+      Serial.print(".");
+      attempts++;
     }
-    client2.print(tail);
-
-    long timeout = millis();
-    while (client2.connected() && millis() - timeout < 10000) {
-      if (client2.available()) {
-        Serial.print((char)client2.read());
-        timeout = millis();
-      }
+    
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.println("\n[WIFI] Reconnected!");
     }
-    Serial.println("\n[UPLOAD] Image Sent to Render Successfully!");
-  } else {
-    Serial.println("[UPLOAD] Render connection failed!");
   }
-  esp_camera_fb_return(fb); // free buffer
 }

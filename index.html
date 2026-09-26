@@ -3603,27 +3603,16 @@
         const st = document.getElementById('widgetSensors');
         const sc = document.getElementById('sensorCount');
 
-        fetch(getBackendUrl('/api/pi/health'))
-          .then(r => r.json())
-          .then(data => {
-            // 2 sensors (Ultrasonic, PIR) feed through ESP32-MIC
-            // IR sensor excluded — <8mm range makes it unusable
-            // If MIC is online, both sensors are online
-            const sensorCount = data.micOnline ? 2 : 0;
-            const camOnline = data.camOnline || false;
+        // Use local connection state instead of cloud health check
+        const micOnline = window.espMicOnline || false;
+        const sensorCount = micOnline ? 2 : 0;
 
-            let status = 'Offline';
-            if (sensorCount === 2) status = 'Active';
-            else if (sensorCount > 0) status = 'Degraded';
+        let status = 'Offline';
+        if (sensorCount === 2) status = 'Active';
+        else if (sensorCount > 0) status = 'Degraded';
 
-            if (st) st.textContent = status;
-            if (sc) sc.textContent = sensorCount + ' modules online';
-          })
-          .catch(() => {
-            // Can't reach backend — show offline
-            if (st) st.textContent = 'Offline';
-            if (sc) sc.textContent = '0 modules online';
-          });
+        if (st) st.textContent = status;
+        if (sc) sc.textContent = sensorCount + ' modules online';
       }
       updateSensors();
       setInterval(updateSensors, 5000);
@@ -3683,87 +3672,226 @@ function navSOS(el) {
     <script src="js/VisionController.js"></script>
     <script src="js/RouterEngine.js"></script>
     <script src="js/VoiceAssistantController.js"></script>
-    <!-- REAL-TIME GHOST CLICK PIPELINE (Physical Module To DOM Sink) -->
+    <!-- LOCAL HARDWARE PIPELINE (SoftAP: ESP32-MIC → Phone → Render Cloud) -->
     <script>
       document.addEventListener("DOMContentLoaded", () => {
-         const backendUrl = localStorage.getItem("visionAidBackendUrl") || window.location.origin;
-         try {
-           const sse = new EventSource(`${backendUrl}/api/stream`);
-           sse.onmessage = (event) => {
-             const data = JSON.parse(event.data);
-             if (data.event === "HARDWARE_BTN_TOUCHED") {
-               const micBtn = document.getElementById('micBtn');
-               if (micBtn) micBtn.classList.add('recording');
-               
-               // Stop any ongoing TTS immediately and robustly
-               if (window.speechSynthesis) {
-                 window.speechSynthesis.__isCanceling = true;
-                 window.speechSynthesis.pause();
-                 window.speechSynthesis.cancel();
-               }
-               
-               // Interrupt any ongoing Chat Generation (fetch)
-               if (window.currentChatAbortCtrl) {
-                 try { window.currentChatAbortCtrl.abort(); } catch(e) {}
-               }
-               
-               // Auto-open AI Chat companion whenever physical button is touched
-               const overlay = document.getElementById('modalOverlay');
-               const isModalOpen = overlay && overlay.classList.contains('active');
-               if (!isModalOpen || activeModal !== 'companion') {
-                 openModal('companion');
-                 const newMicBtn = document.getElementById('micBtn');
-                 if (newMicBtn) newMicBtn.classList.add('recording');
-               }
-             } else if (data.event === "HARDWARE_BTN_RELEASED") {
-               const micBtn = document.getElementById('micBtn');
-               if (micBtn) micBtn.classList.remove('recording');
-             } else if (data.event === "AUDIO_RESULT") {
-               const chatData = data.data;
-               const micBtn = document.getElementById('micBtn');
-               if (micBtn) micBtn.classList.remove('recording');
+         // ─── LOCAL NETWORK ADDRESSES ───
+         const ESP32_MIC_WS = "ws://192.168.4.1:81";
+         const ESP32_CAM_URL = "http://192.168.4.2";
+         const RENDER_WS_URL = "wss://visionaid-5ut9.onrender.com/api/pi/ws";
+         const RENDER_SSE_URL = "https://visionaid-5ut9.onrender.com/api/stream";
 
-               if (typeof addChatMessage === 'function' && chatData.transcript.trim() !== '') {
-                   addChatMessage("user", chatData.transcript);
+         // Global state for other scripts to check
+         window.espMicOnline = false;
+         window.espCamOnline = false;
+         window.localWS = null;
+
+         let localWS = null;
+         let relayWS = null;
+         let isRelayRecording = false;
+
+         // ─── LOCAL WEBSOCKET TO ESP32-MIC ───
+         function connectLocalWS() {
+           try {
+             localWS = new WebSocket(ESP32_MIC_WS);
+             window.localWS = localWS;
+
+             localWS.binaryType = "arraybuffer";
+
+             localWS.onopen = () => {
+               console.log("[LocalWS] Connected to ESP32-MIC!");
+               window.espMicOnline = true;
+               updateDeviceStatus();
+             };
+
+             localWS.onmessage = (event) => {
+               // Binary = audio data → forward to Render relay
+               if (event.data instanceof ArrayBuffer) {
+                 if (relayWS && relayWS.readyState === WebSocket.OPEN && isRelayRecording) {
+                   relayWS.send(event.data);
+                 }
+                 return;
                }
-               if (typeof RouterEngine !== 'undefined') {
-                   RouterEngine.dispatch(chatData.transcript, chatData.text);
-               } else if (typeof addChatMessage === 'function') {
-                   addChatMessage("ai", chatData.text);
-                   if (typeof speakText === 'function') speakText(chatData.text);
+
+               // Text = JSON event
+               try {
+                 const data = JSON.parse(event.data);
+
+                 if (data.event === "HARDWARE_BTN_TOUCHED") {
+                   handleButtonTouched();
+                 } else if (data.event === "HARDWARE_BTN_RELEASED") {
+                   handleButtonReleased();
+                 } else if (data.type === "sensors") {
+                   window.latestSensorData = data;
+                 } else if (data.type === "connected") {
+                   console.log("[LocalWS] ESP32 identified:", data.device);
+                 }
+               } catch(e) {
+                 console.log("[LocalWS] Non-JSON message:", event.data);
                }
-             }
-           };
-           sse.onerror = (e) => {
-             console.log("[GhostClick] SSE Stream Reconnecting...");
-           };
-         } catch(e) {
-           console.log("Failed to map SSE pipeline.");
+             };
+
+             localWS.onclose = () => {
+               console.log("[LocalWS] Disconnected from ESP32-MIC");
+               window.espMicOnline = false;
+               window.localWS = null;
+               updateDeviceStatus();
+               setTimeout(connectLocalWS, 3000);
+             };
+
+             localWS.onerror = () => {
+               localWS.close();
+             };
+           } catch(e) {
+             console.log("[LocalWS] Failed to connect:", e);
+             setTimeout(connectLocalWS, 3000);
+           }
          }
 
-         // HARDWARE HEALTH DIAGNOSTIC POLL
-         setInterval(async () => {
+         // ─── RELAY WEBSOCKET TO RENDER (forwards audio for STT processing) ───
+         function connectRelayWS() {
            try {
-             const resp = await fetch(`${backendUrl}/api/pi/health`);
-             const data = await resp.json();
-             const dotCam = document.getElementById('dotCam');
-             const dotMic = document.getElementById('dotMic');
-             
-             if (dotCam) {
-               if (data.camOnline) dotCam.classList.add("online");
-               else dotCam.classList.remove("online");
-             }
-             if (dotMic) {
-               if (data.micOnline) dotMic.classList.add("online");
-               else dotMic.classList.remove("online");
-             }
+             relayWS = new WebSocket(RENDER_WS_URL);
+
+             relayWS.onopen = () => {
+               console.log("[RelayWS] Connected to Render backend for audio relay!");
+             };
+
+             relayWS.onmessage = (event) => {
+               // Handle any responses from Render via WebSocket
+               try {
+                 const data = JSON.parse(event.data);
+                 if (data.event === "AUDIO_RESULT" || data.type === "AUDIO_RESULT") {
+                   handleAudioResult(data.data || data);
+                 }
+               } catch(e) {}
+             };
+
+             relayWS.onclose = () => {
+               console.log("[RelayWS] Disconnected from Render");
+               setTimeout(connectRelayWS, 5000);
+             };
+
+             relayWS.onerror = () => {
+               relayWS.close();
+             };
            } catch(e) {
-                const dotCam = document.getElementById('dotCam');
-                const dotMic = document.getElementById('dotMic');
-                if (dotCam) dotCam.classList.remove("online");
-                if (dotMic) dotMic.classList.remove("online");
+             setTimeout(connectRelayWS, 5000);
            }
-         }, 2000);
+         }
+
+         // ─── EVENT HANDLERS ───
+         function handleButtonTouched() {
+           const micBtn = document.getElementById('micBtn');
+           if (micBtn) micBtn.classList.add('recording');
+
+           // Stop any ongoing TTS immediately
+           if (window.speechSynthesis) {
+             window.speechSynthesis.__isCanceling = true;
+             window.speechSynthesis.pause();
+             window.speechSynthesis.cancel();
+           }
+
+           // Interrupt any ongoing Chat Generation
+           if (window.currentChatAbortCtrl) {
+             try { window.currentChatAbortCtrl.abort(); } catch(e) {}
+           }
+
+           // Auto-open AI Chat companion
+           const overlay = document.getElementById('modalOverlay');
+           const isModalOpen = overlay && overlay.classList.contains('active');
+           if (!isModalOpen || activeModal !== 'companion') {
+             openModal('companion');
+             const newMicBtn = document.getElementById('micBtn');
+             if (newMicBtn) newMicBtn.classList.add('recording');
+           }
+
+           // Start audio relay to Render
+           if (relayWS && relayWS.readyState === WebSocket.OPEN) {
+             relayWS.send("START");
+             isRelayRecording = true;
+             console.log("[Relay] Started forwarding audio to Render");
+           }
+         }
+
+         function handleButtonReleased() {
+           const micBtn = document.getElementById('micBtn');
+           if (micBtn) micBtn.classList.remove('recording');
+
+           // Stop audio relay to Render
+           if (relayWS && relayWS.readyState === WebSocket.OPEN) {
+             relayWS.send("STOP");
+             isRelayRecording = false;
+             console.log("[Relay] Stopped forwarding audio to Render");
+           }
+         }
+
+         function handleAudioResult(chatData) {
+           const micBtn = document.getElementById('micBtn');
+           if (micBtn) micBtn.classList.remove('recording');
+
+           if (typeof addChatMessage === 'function' && chatData.transcript && chatData.transcript.trim() !== '') {
+             addChatMessage("user", chatData.transcript);
+           }
+           if (typeof RouterEngine !== 'undefined') {
+             RouterEngine.dispatch(chatData.transcript, chatData.text);
+           } else if (typeof addChatMessage === 'function') {
+             addChatMessage("ai", chatData.text);
+             if (typeof speakText === 'function') speakText(chatData.text);
+           }
+         }
+
+         // ─── DEVICE STATUS ───
+         function updateDeviceStatus() {
+           const dotMic = document.getElementById('dotMic');
+           const dotCam = document.getElementById('dotCam');
+
+           if (dotMic) {
+             if (window.espMicOnline) dotMic.classList.add("online");
+             else dotMic.classList.remove("online");
+           }
+           if (dotCam) {
+             if (window.espCamOnline) dotCam.classList.add("online");
+             else dotCam.classList.remove("online");
+           }
+         }
+
+         // Check ESP32-CAM availability via local HTTP
+         async function checkCamStatus() {
+           try {
+             const controller = new AbortController();
+             const timeoutId = setTimeout(() => controller.abort(), 2000);
+             const resp = await fetch(`${ESP32_CAM_URL}/status`, { signal: controller.signal });
+             clearTimeout(timeoutId);
+             window.espCamOnline = resp.ok;
+           } catch(e) {
+             window.espCamOnline = false;
+           }
+           updateDeviceStatus();
+         }
+
+         // ─── INITIALIZE CONNECTIONS ───
+         connectLocalWS();
+         connectRelayWS();
+         setInterval(checkCamStatus, 3000);
+
+         // Also keep Render SSE for AUDIO_RESULT events (uses phone's cellular data)
+         try {
+           const sse = new EventSource(RENDER_SSE_URL);
+           sse.onmessage = (event) => {
+             try {
+               const data = JSON.parse(event.data);
+               if (data.event === "AUDIO_RESULT") {
+                 handleAudioResult(data.data);
+               }
+             } catch(e) {}
+           };
+           sse.onerror = () => {
+             console.log("[SSE] Render stream reconnecting...");
+           };
+         } catch(e) {
+           console.log("[SSE] Could not connect to Render SSE. Audio results may come via relay WS instead.");
+         }
       });
     </script>
 

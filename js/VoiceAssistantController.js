@@ -146,7 +146,7 @@ const VoiceAssistantController = (() => {
   }
 
   async function captureCommand() {
-    log("Capturing command. Checking hardware ESP32...");
+    log("Capturing command. Checking local ESP32 connection...");
 
     if (isRecordingState) {
       log("Already waiting for hardware or listening locally.");
@@ -157,13 +157,8 @@ const VoiceAssistantController = (() => {
     setMicUI(true);
 
     try {
-      // Check health endpoint to see if ESP32-MIC is actually online
-      const healthCheck = await fetch(getBackendUrl('/api/pi/health')).catch(() => ({ ok: false }));
-      let hwOnline = false;
-      if (healthCheck && healthCheck.ok) {
-        const hData = await healthCheck.json();
-        hwOnline = hData.micOnline;
-      }
+      // Check if ESP32-MIC is online via local WebSocket connection
+      const hwOnline = window.espMicOnline && window.localWS && window.localWS.readyState === WebSocket.OPEN;
 
       if (!hwOnline) {
         log("ESP32 Mic is offline. Falling back to built-in Web Speech API.");
@@ -174,52 +169,24 @@ const VoiceAssistantController = (() => {
         return; // Built-in handles the rest via onresult
       }
 
-      // ESP32 is online, trigger it
+      // ESP32 is online via local WebSocket, trigger hardware recording
       if (typeof addChatMessage === "function") {
-        addChatMessage("ai", "📡 Contacting ESP32 Mic...");
+        addChatMessage("ai", "📡 Recording via ESP32 Mic...");
       }
 
-      let hasNotifiedListening = false;
-      const pollListening = async () => {
-        if (!isRecordingState || hasNotifiedListening) return;
-        try {
-          const ping = await fetch(getBackendUrl('/api/pi/listening-status'));
-          const pingData = await ping.json();
-          if (pingData.listening && !hasNotifiedListening) {
-            hasNotifiedListening = true;
-            addChatMessage("system", "🟢 LISTENING NOW! Speak for 3 seconds...");
-            return;
-          }
-        } catch (e) {}
-        if (!hasNotifiedListening) setTimeout(pollListening, 150);
-      };
-      pollListening();
+      // Send command to ESP32 to start recording (auto-stops after 3 seconds)
+      window.localWS.send("START_RECORDING");
+      log("Sent START_RECORDING command to ESP32-MIC via local WebSocket.");
 
-      // Tell backend to trigger hardware
-      const response = await fetch(getBackendUrl('/api/pi/trigger-hardware-mic'), { method: 'POST' });
-
-      isRecordingState = false;
-      setMicUI(false);
-
-      if (!response.ok) {
-        log("Hardware routing failed. Falling back to built-in Web Speech API.");
-        if (typeof addChatMessage === "function") {
-          addChatMessage("ai", "⚠️ Hardware timed out. Falling back to built-in microphone...");
+      // The result will arrive asynchronously via:
+      //   ESP32 audio → phone local WS → relay WS → Render → SSE → handleAudioResult
+      // Reset UI state after a timeout (in case something goes wrong)
+      setTimeout(() => {
+        if (isRecordingState) {
+          isRecordingState = false;
+          setMicUI(false);
         }
-        startRecognitionSafely();
-        return;
-      }
-
-      const data = await response.json();
-      if (typeof addChatMessage === 'function') {
-        addChatMessage("user", data.transcript);
-      }
-      
-      if (typeof RouterEngine !== 'undefined' && typeof RouterEngine.dispatch === 'function') {
-         RouterEngine.dispatch(data.transcript);
-      } else {
-         if (typeof addChatMessage === 'function') addChatMessage("ai", data.text);
-      }
+      }, 10000);
 
     } catch (err) {
       log("Hardware fetch failed: " + err.message + ". Falling back to Web Speech.");

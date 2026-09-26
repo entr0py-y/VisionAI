@@ -1,17 +1,12 @@
 #include <WiFi.h>
-#include <WiFiClientSecure.h>
-#include <WebSocketsClient.h>
+#include <WebSocketsServer.h>
 #include <driver/i2s.h>
 
 // ===========================
-// CONFIGURATION
+// CONFIGURATION — SoftAP Mode
 // ===========================
-const char* ssid = "Heisenberg";
-const char* password = "11111111";
-
-// Cloud Server Configuration
-const char* serverIp = "visionaid-5ut9.onrender.com";
-const int serverPort = 443;
+const char* ap_ssid = "VisionAID";
+const char* ap_password = "visionaid123";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ESP32-S3 N16R8 PIN MAPPING
@@ -98,7 +93,7 @@ const int serverPort = 443;
 #define ULTRASONIC_TRIG  16   // HC-SR04 Trigger
 #define ULTRASONIC_ECHO  17   // HC-SR04 Echo (use voltage divider 5V→3.3V!)
 
-WebSocketsClient webSocket;
+WebSocketsServer webSocket = WebSocketsServer(81);
 bool isRecording = false;
 bool lastTouchState = LOW;  // Changed: Module outputs HIGH when pressed
 unsigned long lastSensorSend = 0;
@@ -112,6 +107,11 @@ int16_t* pcm16Buffer = nullptr;
 const unsigned long ALERT_INTERVAL = 200;   // 200ms in HIGH ALERT mode
 const unsigned long IDLE_INTERVAL  = 400;   // 400ms in IDLE mode
 unsigned long currentSensorInterval = IDLE_INTERVAL;
+
+// Auto-recording state (for website-triggered recording)
+bool autoRecordMode = false;
+unsigned long autoRecordStart = 0;
+const unsigned long AUTO_RECORD_DURATION = 3000; // 3 seconds
 
 // ===========================
 // LED HELPER (S3 RGB LED)
@@ -209,42 +209,103 @@ long readDistanceCM() {
   return (long)(emaDistance + 0.5);
 }
 
-void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
+// ===========================
+// RECORDING HELPERS
+// ===========================
+void startRecording() {
+  Serial.println("\n[REC] Starting recording...");
+  ledOn();
+  
+  webSocket.broadcastTXT("{\"event\":\"HARDWARE_BTN_TOUCHED\"}");
+  
+  // Allocate audio buffers — use PSRAM if available for stability
+  if (ESP.getFreePsram() > 4096) {
+    pcm32Buffer = (uint8_t*)ps_malloc(2048);
+    pcm16Buffer = (int16_t*)ps_malloc(1024);
+    Serial.println("[MEM] Audio buffers allocated in PSRAM");
+  } else {
+    pcm32Buffer = (uint8_t*)malloc(2048);
+    pcm16Buffer = (int16_t*)malloc(1024);
+    Serial.println("[MEM] Audio buffers allocated in SRAM");
+  }
+  
+  isRecording = true;
+  i2s_zero_dma_buffer(I2S_PORT);
+}
+
+void stopRecording() {
+  Serial.println("\n[REC] Stopping recording...");
+  ledOff();
+  
+  webSocket.broadcastTXT("{\"event\":\"HARDWARE_BTN_RELEASED\"}");
+  
+  // Free audio buffers
+  if (pcm32Buffer) { free(pcm32Buffer); pcm32Buffer = nullptr; }
+  if (pcm16Buffer) { free(pcm16Buffer); pcm16Buffer = nullptr; }
+  
+  isRecording = false;
+  autoRecordMode = false;
+  
+  // Heap monitoring & auto-restart safeguard
+  uint32_t freeHeap = ESP.getFreeHeap();
+  Serial.printf("[MEM] Final heap after session: %u bytes\n", freeHeap);
+  
+  if (freeHeap < 20000) {
+    Serial.println("[MEM] Critical Heap Low! Self-healing restart...");
+    webSocket.broadcastTXT("{\"type\":\"ESP32_RESTARTING\"}");
+    delay(500);
+    ESP.restart();
+  } else if (freeHeap < 50000) {
+    Serial.println("[MEM] Warning: Heap getting low.");
+  }
+}
+
+// ===========================
+// WEBSOCKET EVENT HANDLER
+// ===========================
+void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
   switch(type) {
     case WStype_DISCONNECTED:
-      Serial.println("[WS] Disconnected from server!");
+      Serial.printf("[WS] Client #%u disconnected!\n", num);
       break;
     case WStype_CONNECTED:
-      Serial.printf("[WS] Connected to %s\n", payload);
+      Serial.printf("[WS] Client #%u connected from %s\n", num, webSocket.remoteIP(num).toString().c_str());
       ledBlink(3, 100);
+      // Send current state to newly connected client
+      webSocket.sendTXT(num, "{\"type\":\"connected\",\"device\":\"ESP32_MIC\"}");
       break;
-    case WStype_TEXT:
-      Serial.printf("[WS] Received msg: %s\n", payload);
+    case WStype_TEXT: {
+      String msg = String((char*)payload);
+      Serial.printf("[WS] Client #%u sent: %s\n", num, payload);
+      
+      if (msg == "START_RECORDING" && !isRecording) {
+        // Website-triggered recording (auto-stop after 3 seconds)
+        autoRecordMode = true;
+        autoRecordStart = millis();
+        startRecording();
+      } else if (msg == "STOP_RECORDING" && isRecording) {
+        stopRecording();
+      }
       break;
+    }
   }
 }
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("Starting ESP32-S3 Mic with WebSockets + Spatial Sensors...");
+  Serial.println("Starting ESP32-S3 Mic — SoftAP Mode...");
   Serial.printf("[SYS] Chip: %s  Rev: %d  Cores: %d\n", 
                 ESP.getChipModel(), ESP.getChipRevision(), ESP.getChipCores());
   Serial.printf("[SYS] Flash: %u KB  PSRAM: %u KB\n", 
                 ESP.getFlashChipSize() / 1024, ESP.getPsramSize() / 1024);
 
-  // 1. CONNECT TO WIFI
-  WiFi.mode(WIFI_STA);       
-  WiFi.disconnect(true);     
-  delay(100);                
-  
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println("\nWiFi Connected!");
-  Serial.print("IP Address: ");
-  Serial.println(WiFi.localIP());
+  // 1. CREATE SOFTAP NETWORK
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP(ap_ssid, ap_password);
+  delay(100);
+  Serial.printf("\n[AP] Network '%s' created successfully!\n", ap_ssid);
+  Serial.printf("[AP] Password: %s\n", ap_password);
+  Serial.printf("[AP] IP Address: %s\n", WiFi.softAPIP().toString().c_str());
 
   // LED setup
 #if !defined(RGB_BUILTIN)
@@ -288,11 +349,15 @@ void setup() {
   pinMode(ULTRASONIC_ECHO, INPUT); 
   Serial.println("Sensors initialized.");
 
-  // 4. WS SERVER SETUP
-  webSocket.beginSSL(serverIp, serverPort, "/api/pi/ws");
+  // 4. WEBSOCKET SERVER SETUP
+  webSocket.begin();
   webSocket.onEvent(webSocketEvent);
-  webSocket.setReconnectInterval(5000);
-  Serial.println("[WS] WebSocket client started.");
+  Serial.println("[WS] WebSocket server started on port 81");
+  Serial.println("\n========================================");
+  Serial.println("  VisionAID SoftAP Ready!");
+  Serial.printf("  Connect phone to WiFi: %s\n", ap_ssid);
+  Serial.printf("  WebSocket: ws://%s:81\n", WiFi.softAPIP().toString().c_str());
+  Serial.println("========================================\n");
 }
 
 void loop() {
@@ -301,12 +366,14 @@ void loop() {
   // Periodic heap log (30s)
   if (millis() - lastHeapLog > 30000) {
     lastHeapLog = millis();
-    Serial.printf("[MEM] Free heap: %u bytes | PSRAM free: %u bytes\n", 
-                  ESP.getFreeHeap(), ESP.getFreePsram());
+    Serial.printf("[MEM] Free heap: %u bytes | PSRAM free: %u bytes | Clients: %d\n", 
+                  ESP.getFreeHeap(), ESP.getFreePsram(), webSocket.connectedClients());
   }
-  
-  if (WiFi.status() != WL_CONNECTED) {
-    return;
+
+  // Auto-record timeout (for website-triggered recording)
+  if (autoRecordMode && isRecording && (millis() - autoRecordStart >= AUTO_RECORD_DURATION)) {
+    Serial.println("[REC] Auto-record timeout reached (3s). Stopping...");
+    stopRecording();
   }
 
   // ─── SENSOR TELEMETRY — Adaptive frequency ───
@@ -316,7 +383,7 @@ void loop() {
     int pirState = digitalRead(PIR_PIN);       
     long distanceCM = readDistanceCM();         
     
-    if (webSocket.isConnected()) {
+    if (webSocket.connectedClients() > 0) {
       bool isAlert = (pirState == 1) || (distanceCM > 0 && distanceCM < 100);
       currentSensorInterval = isAlert ? ALERT_INTERVAL : IDLE_INTERVAL;
       const char* mode = isAlert ? "ALERT" : "IDLE";
@@ -325,7 +392,7 @@ void loop() {
       snprintf(sensorJSON, sizeof(sensorJSON), "{\"type\":\"sensors\",\"p\":%d,\"u\":%ld,\"mode\":\"%s\"}", 
                pirState, distanceCM, mode);
       
-      webSocket.sendTXT(sensorJSON);
+      webSocket.broadcastTXT(sensorJSON);
     }
   }
 
@@ -335,57 +402,16 @@ void loop() {
   
   // Button pressed (LOW→HIGH transition)
   if (currentTouchState == HIGH && lastTouchState == LOW) {
-    if (webSocket.isConnected()) {
+    if (!isRecording) {
       Serial.println("\n[PTT] Button pressed! Starting recording...");
-      ledOn();
-      
-      webSocket.sendTXT("START");
-      
-      // Allocate audio buffers — use PSRAM if available for stability
-      if (ESP.getFreePsram() > 4096) {
-        pcm32Buffer = (uint8_t*)ps_malloc(2048);
-        pcm16Buffer = (int16_t*)ps_malloc(1024);
-        Serial.println("[MEM] Audio buffers allocated in PSRAM");
-      } else {
-        pcm32Buffer = (uint8_t*)malloc(2048);
-        pcm16Buffer = (int16_t*)malloc(1024);
-        Serial.println("[MEM] Audio buffers allocated in SRAM");
-      }
-      
-      isRecording = true;
-      i2s_zero_dma_buffer(I2S_PORT);
-    } else {
-      Serial.println("[ERR] WS not connected, cannot stream.");
+      startRecording();
     }
     delay(50);
   } 
   // Button released (HIGH→LOW transition)
-  else if (currentTouchState == LOW && lastTouchState == HIGH && isRecording) {
+  else if (currentTouchState == LOW && lastTouchState == HIGH && isRecording && !autoRecordMode) {
     Serial.println("\n[PTT] Released! Finalizing buffer.");
-    ledOff();
-    
-    webSocket.sendTXT("STOP");
-    
-    // Free audio buffers
-    if (pcm32Buffer) { free(pcm32Buffer); pcm32Buffer = nullptr; }
-    if (pcm16Buffer) { free(pcm16Buffer); pcm16Buffer = nullptr; }
-    
-    isRecording = false;
-    
-    // Heap monitoring & auto-restart safeguard
-    uint32_t freeHeap = ESP.getFreeHeap();
-    Serial.printf("[MEM] Final heap after session: %u bytes\n", freeHeap);
-    
-    if (freeHeap < 20000) {
-      Serial.println("[MEM] Critical Heap Low! Self-healing restart...");
-      webSocket.sendTXT("{\"type\":\"ESP32_RESTARTING\"}");
-      delay(500);
-      ESP.restart();
-    } else if (freeHeap < 50000) {
-      Serial.println("[MEM] Warning: Heap low, clearing internal WebSocket buffers...");
-      webSocket.disconnect();
-    }
-    
+    stopRecording();
     delay(50);
   }
   
@@ -418,7 +444,7 @@ void loop() {
       }
       
       int bytesToSend = samplesRead * 2;
-      webSocket.sendBIN((uint8_t*)pcm16Buffer, bytesToSend);
+      webSocket.broadcastBIN((uint8_t*)pcm16Buffer, bytesToSend);
     }
   }
 }

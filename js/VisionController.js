@@ -104,13 +104,8 @@ const VisionController = (() => {
          return await runDeviceCamera(userPrompt);
        }
 
-       // Check if ESP32-CAM is online
-       const healthCheck = await fetch(getBackendUrl('/api/pi/health')).catch(() => ({ ok: false }));
-       let hwOnline = false;
-       if (healthCheck && healthCheck.ok) {
-         const hData = await healthCheck.json();
-         hwOnline = hData.camOnline;
-       }
+       // Check if ESP32-CAM is online via local connection state
+       const hwOnline = window.espCamOnline || false;
 
        if (!hwOnline) {
          log("ESP32-CAM is offline. Falling back to device camera.");
@@ -118,21 +113,46 @@ const VisionController = (() => {
          return await runDeviceCamera(userPrompt);
        }
 
-       uiMsg('📸 Triggering ESP32 Camera to analyse your surroundings...', 'ai');
-       speak('Triggering ESP32 camera. Please point it forward and hold still.');
+       uiMsg('📸 Capturing from ESP32 Camera...', 'ai');
+       speak('Capturing from ESP32 camera. Please hold still.');
 
-       console.log('Routing directly to ESP32 Hardware Camera...');
+       console.log('Fetching image from local ESP32-CAM...');
 
-      const espRes = await fetch(getBackendUrl('/api/pi/trigger-hardware-camera'), {
-         method: 'POST',
-         headers: { 'Content-Type': 'application/json' },
-         body: JSON.stringify({ prompt: userPrompt || '' }),
+       // Capture JPEG directly from local ESP32-CAM HTTP server
+       const ESP32_CAM_URL = "http://192.168.4.2";
+       const captureResp = await fetch(`${ESP32_CAM_URL}/capture`);
+       if (!captureResp.ok) throw new Error('ESP Camera capture failed');
+       
+       const imageBlob = await captureResp.blob();
+       
+       // Convert blob to base64 for display and API call
+       const base64Image = await new Promise((resolve, reject) => {
+         const reader = new FileReader();
+         reader.onloadend = () => resolve(reader.result);
+         reader.onerror = reject;
+         reader.readAsDataURL(imageBlob);
        });
-       if (!espRes.ok) throw new Error('ESP Camera timeout or error');
-       const espData = await espRes.json();
 
-       const description = espData.description || 'I could not analyse the ESP image.';
-       const capturedImage = espData.image || null;
+       // Send to Render backend for AI vision analysis
+       const resp = await fetch(getBackendUrl('/api/vision'), {
+         method: 'POST',
+         headers: { 
+           'Content-Type': 'application/json',
+           'x-ai-keys': localStorage.getItem('aiApiKeys') || ''
+         },
+         body: JSON.stringify({
+           image: base64Image,
+           prompt: userPrompt || '',
+           source: 'esp32',
+           username: localStorage.getItem('visionAidUsername') || 'unknown',
+         }),
+       });
+
+       if (!resp.ok) throw new Error('Vision analysis failed');
+       const data = await resp.json();
+
+       const description = data.description || 'I could not analyse the ESP image.';
+       const capturedImage = data.image || base64Image || null;
        uiMsg('👁️ ' + description, 'ai', capturedImage);
        speak(description);
        
