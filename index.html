@@ -3711,10 +3711,9 @@ function navSOS(el) {
                const overlay = document.getElementById('modalOverlay');
                const isModalOpen = overlay && overlay.classList.contains('active');
                if (!isModalOpen || activeModal !== 'companion') {
-                 const aiTab = document.querySelector('.nav-item[data-tab="ai"]');
-               if (aiTab) {
-                    switchTab(aiTab);
-                 }
+                 openModal('companion');
+                 const newMicBtn = document.getElementById('micBtn');
+                 if (newMicBtn) newMicBtn.classList.add('recording');
                }
              } else if (data.event === "HARDWARE_BTN_RELEASED") {
                const micBtn = document.getElementById('micBtn');
