@@ -113,6 +113,19 @@ void handleStatus() {
   server.send(200, "application/json", json);
 }
 
+// GET /reinit — Try to reinitialize camera on the fly without board reboot
+void handleReinit() {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  Serial.println("[CAM] Manual camera re-init requested...");
+  esp_camera_deinit();
+  delay(100);
+  extern void initCameraHardware();
+  initCameraHardware();
+  char json[128];
+  snprintf(json, sizeof(json), "{\"cam_ok\":%s,\"cam_err\":%d}", camInitialized ? "true" : "false", (int)camInitError);
+  server.send(200, "application/json", json);
+}
+
 // OPTIONS — CORS preflight handler
 void handleCORS() {
   server.sendHeader("Access-Control-Allow-Origin", "*");
@@ -121,8 +134,82 @@ void handleCORS() {
   server.send(204);
 }
 
+void initCameraHardware() {
+  camera_config_t config;
+  config.ledc_channel = LEDC_CHANNEL_0;
+  config.ledc_timer = LEDC_TIMER_0;
+  config.pin_d0 = Y2_GPIO_NUM;
+  config.pin_d1 = Y3_GPIO_NUM;
+  config.pin_d2 = Y4_GPIO_NUM;
+  config.pin_d3 = Y5_GPIO_NUM;
+  config.pin_d4 = Y6_GPIO_NUM;
+  config.pin_d5 = Y7_GPIO_NUM;
+  config.pin_d6 = Y8_GPIO_NUM;
+  config.pin_d7 = Y9_GPIO_NUM;
+  config.pin_xclk = XCLK_GPIO_NUM;
+  config.pin_pclk = PCLK_GPIO_NUM;
+  config.pin_vsync = VSYNC_GPIO_NUM;
+  config.pin_href = HREF_GPIO_NUM;
+  config.pin_sccb_sda = SIOD_GPIO_NUM;
+  config.pin_sccb_scl = SIOC_GPIO_NUM;
+  config.pin_pwdn = PWDN_GPIO_NUM;
+  config.pin_reset = RESET_GPIO_NUM;
+  config.xclk_freq_hz = 20000000;
+  config.pixel_format = PIXFORMAT_JPEG;
+
+  if (psramFound()) {
+    config.frame_size = FRAMESIZE_VGA;
+    config.jpeg_quality = 12;
+    config.fb_count = 2; // Double buffering with PSRAM
+#if defined(CAMERA_GRAB_LATEST)
+    config.grab_mode = CAMERA_GRAB_LATEST; // Driver automatically keeps newest frame
+#endif
+  } else {
+    config.frame_size = FRAMESIZE_CIF;
+    config.jpeg_quality = 14;
+    config.fb_count = 1;
+#if defined(CAMERA_FB_IN_DRAM)
+    config.fb_location = CAMERA_FB_IN_DRAM;
+#endif
+  }
+
+  // Attempt 1: 20MHz (Standard)
+  camInitError = esp_camera_init(&config);
+  
+  // Attempt 2: If 20MHz fails, try 10MHz (Tolerant of clock jitter)
+  if (camInitError != ESP_OK) {
+    Serial.printf("[CAM] 20MHz init returned 0x%x, retrying at 10MHz...\n", camInitError);
+    esp_camera_deinit();
+    delay(100);
+    config.xclk_freq_hz = 10000000;
+    camInitError = esp_camera_init(&config);
+  }
+
+  if (camInitError != ESP_OK) {
+    camInitialized = false;
+    Serial.printf("[CAM] ERROR: esp_camera_init failed with error 0x%x\n", camInitError);
+    if (camInitError == ESP_ERR_NO_MEM) {
+      Serial.println("[CAM] -> Reason: OUT OF MEMORY. In Arduino IDE, set Tools -> PSRAM -> Enabled!");
+    } else {
+      Serial.println("[CAM] -> Reason: HARDWARE FAILURE (-1 / 0x105). Check OV2640 ribbon cable!");
+      Serial.println("[CAM] -> Fix: Push ribbon all the way into connector with golden contacts facing DOWN.");
+    }
+  } else {
+    camInitialized = true;
+    Serial.println("[CAM] Camera initialized successfully!");
+    
+    // Perform image inversion via hardware
+    sensor_t * s = esp_camera_sensor_get();
+    if (s) {
+      s->set_vflip(s, 1);
+      s->set_hmirror(s, 1);
+    }
+  }
+}
+
 void setup() {
   Serial.begin(115200);
+  Serial.setDebugOutput(true); // Enables low-level ESP-IDF camera driver logs in Serial Monitor
   delay(1000); // Allow serial monitor to catch boot messages
   Serial.println("\n\n========================================");
   Serial.println("  Starting ESP32-CAM (SoftAP Client Mode)");
@@ -137,7 +224,12 @@ void setup() {
   }
   Serial.printf("[SYSTEM] Free internal heap: %u bytes\n", ESP.getFreeHeap());
 
-  // 1. CONNECT TO VisionAID NETWORK (created by ESP32-MIC)
+  // STEP 1: INITIALIZE CAMERA FIRST (Before Wi-Fi turns on!)
+  // Eliminates voltage drops and DMA contention that cause -1 (ESP_FAIL)
+  Serial.println("[CAM] Initializing camera hardware first...");
+  initCameraHardware();
+
+  // STEP 2: CONNECT TO VisionAID NETWORK (created by ESP32-MIC)
   WiFi.mode(WIFI_STA);
   WiFi.config(local_IP, gateway, subnet);
   WiFi.begin(ssid, password);
@@ -165,94 +257,18 @@ void setup() {
   Serial.println("\n[WIFI] Connected to VisionAID!");
   Serial.printf("[WIFI] IP Address: %s\n", WiFi.localIP().toString().c_str());
 
-  // 2. CONFIGURE CAMERA
-  camera_config_t config;
-  config.ledc_channel = LEDC_CHANNEL_0;
-  config.ledc_timer = LEDC_TIMER_0;
-  config.pin_d0 = Y2_GPIO_NUM;
-  config.pin_d1 = Y3_GPIO_NUM;
-  config.pin_d2 = Y4_GPIO_NUM;
-  config.pin_d3 = Y5_GPIO_NUM;
-  config.pin_d4 = Y6_GPIO_NUM;
-  config.pin_d5 = Y7_GPIO_NUM;
-  config.pin_d6 = Y8_GPIO_NUM;
-  config.pin_d7 = Y9_GPIO_NUM;
-  config.pin_xclk = XCLK_GPIO_NUM;
-  config.pin_pclk = PCLK_GPIO_NUM;
-  config.pin_vsync = VSYNC_GPIO_NUM;
-  config.pin_href = HREF_GPIO_NUM;
-  config.pin_sccb_sda = SIOD_GPIO_NUM;
-  config.pin_sccb_scl = SIOC_GPIO_NUM;
-  config.pin_pwdn = PWDN_GPIO_NUM;
-  config.pin_reset = RESET_GPIO_NUM;
-  // 10MHz clock eliminates signal jitter and DMA frame timeouts common at 20MHz
-  config.xclk_freq_hz = 10000000;
-  config.pixel_format = PIXFORMAT_JPEG;
-
-  if (psramFound()) {
-    config.frame_size = FRAMESIZE_VGA;
-    config.jpeg_quality = 12;
-    config.fb_count = 2; // Double buffering with PSRAM
-#if defined(CAMERA_GRAB_LATEST)
-    config.grab_mode = CAMERA_GRAB_LATEST; // Driver automatically keeps newest frame
-#endif
-  } else {
-    // Without PSRAM, internal DRAM cannot hold VGA. Use CIF (400x296) for reliable capture
-    config.frame_size = FRAMESIZE_CIF;
-    config.jpeg_quality = 14;
-    config.fb_count = 1;
-#if defined(CAMERA_FB_IN_DRAM)
-    config.fb_location = CAMERA_FB_IN_DRAM;
-#endif
-  }
-
-  // Hardware power-cycle for OV2640 sensor before init
-  pinMode(PWDN_GPIO_NUM, OUTPUT);
-  digitalWrite(PWDN_GPIO_NUM, HIGH); // Assert power-down
-  delay(100);
-  digitalWrite(PWDN_GPIO_NUM, LOW);  // Wake sensor up
-  delay(100);
-
-  camInitError = esp_camera_init(&config);
-  if (camInitError != ESP_OK) {
-    Serial.printf("[CAM] Initial init failed (0x%x), retrying after reset...\n", camInitError);
-    digitalWrite(PWDN_GPIO_NUM, HIGH);
-    delay(150);
-    digitalWrite(PWDN_GPIO_NUM, LOW);
-    delay(150);
-    camInitError = esp_camera_init(&config);
-  }
-
-  if (camInitError != ESP_OK) {
-    Serial.printf("[CAM] ERROR: esp_camera_init failed with error 0x%x\n", camInitError);
-    if (camInitError == ESP_ERR_NO_MEM) {
-      Serial.println("[CAM] -> Reason: OUT OF MEMORY. In Arduino IDE, set Tools -> PSRAM -> Enabled!");
-    } else if (camInitError == ESP_ERR_NOT_FOUND) {
-      Serial.println("[CAM] -> Reason: SENSOR NOT DETECTED (0x105). Check OV2640 ribbon cable connection!");
-      Serial.println("[CAM] -> Fix: Reseat the gold ribbon pins into the connector and snap the clip shut.");
-    }
-  } else {
-    camInitialized = true;
-    Serial.println("[CAM] Camera initialized successfully.");
-    
-    // Perform image inversion via hardware
-    sensor_t * s = esp_camera_sensor_get();
-    if (s) {
-      s->set_vflip(s, 1);
-      s->set_hmirror(s, 1);
-    }
-  }
-
-  // 3. START LOCAL HTTP SERVER
+  // STEP 3: START LOCAL HTTP SERVER
   server.on("/capture", HTTP_GET, handleCapture);
   server.on("/capture", HTTP_OPTIONS, handleCORS);
   server.on("/status", HTTP_GET, handleStatus);
   server.on("/status", HTTP_OPTIONS, handleCORS);
+  server.on("/reinit", HTTP_GET, handleReinit);
+  server.on("/reinit", HTTP_OPTIONS, handleCORS);
   server.begin();
   
   Serial.println("\n========================================");
   Serial.println("  ESP32-CAM Ready (SoftAP Client)!");
-  Serial.printf("  Camera Status: %s\n", camInitialized ? "READY" : "FAILED (check logs above)");
+  Serial.printf("  Camera Status: %s\n", camInitialized ? "READY" : "FAILED (check ribbon cable)");
   Serial.printf("  Connected to: %s\n", ssid);
   Serial.printf("  Capture URL: http://%s/capture\n", WiFi.localIP().toString().c_str());
   Serial.printf("  Status URL:  http://%s/status\n", WiFi.localIP().toString().c_str());
