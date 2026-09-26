@@ -215,7 +215,8 @@ void setup() {
   Serial.println("  Starting ESP32-CAM (SoftAP Client Mode)");
   Serial.println("========================================");
 
-  // Diagnostic: Check PSRAM
+  // Diagnostic: Check Chip & PSRAM
+  Serial.printf("[SYSTEM] Chip Model: %s (Rev %d)\n", ESP.getChipModel(), ESP.getChipRevision());
   if (psramFound()) {
     Serial.printf("[SYSTEM] PSRAM Detected: %u KB free\n", ESP.getFreePsram() / 1024);
   } else {
