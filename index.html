@@ -1952,6 +1952,12 @@
 
         document.getElementById("modalOverlay").classList.remove("active");
         document.getElementById("modalPanel").classList.remove("active");
+        
+        // Reset navigation highlight to Home
+        document.querySelectorAll(".nav-item").forEach((n) => n.classList.remove("active"));
+        const homeTab = document.querySelector('.nav-item[data-tab="home"]');
+        if (homeTab) homeTab.classList.add("active");
+
         modalIntervals.forEach(clearInterval);
         modalIntervals = [];
 
