@@ -3691,10 +3691,7 @@ function navSOS(el) {
            const sse = new EventSource(`${backendUrl}/api/stream`);
            sse.onmessage = (event) => {
              const data = JSON.parse(event.data);
-             if (data.event === "HARDWARE_BTN_TOUCHED") {
-               const micBtn = document.getElementById('micBtn');
-               if (micBtn) micBtn.classList.add('recording');
-               
+              if (data.event === "HARDWARE_BTN_TOUCHED") {
                // Stop any ongoing TTS immediately and robustly
                if (window.speechSynthesis) {
                  window.speechSynthesis.__isCanceling = true;
@@ -3711,11 +3708,13 @@ function navSOS(el) {
                const overlay = document.getElementById('modalOverlay');
                const isModalOpen = overlay && overlay.classList.contains('active');
                if (!isModalOpen || activeModal !== 'companion') {
-                 const aiTab = document.querySelector('.nav-item[data-tab="ai"]');
-               if (aiTab) {
-                    switchTab(aiTab);
-                 }
+                 openModal('companion');
                }
+               
+               setTimeout(() => {
+                 const micBtn = document.getElementById('micBtn');
+                 if (micBtn) micBtn.classList.add('recording');
+               }, 50);
              } else if (data.event === "HARDWARE_BTN_RELEASED") {
                const micBtn = document.getElementById('micBtn');
                if (micBtn) micBtn.classList.remove('recording');
