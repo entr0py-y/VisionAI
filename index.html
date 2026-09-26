@@ -1370,43 +1370,43 @@
       /* ─── SOS SLIDER (fullscreen only) ─── */
       .sos-slider-wrap {
         display: none; /* hidden by default */
-        position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%);
-        width: calc(100% - 48px); max-width: 390px; z-index: 99;
+        position: fixed; bottom: 104px; left: 50%; transform: translateX(-50%);
+        width: calc(100% - 32px); max-width: 380px; z-index: 99;
       }
       body.is-fullscreen .sos-slider-wrap { display: block; }
       .sos-slider-track {
-        width: 100%; height: 64px; border-radius: 32px;
-        background: rgba(30,30,30,0.95);
+        width: 100%; height: 72px; border-radius: 36px;
+        background: #111111;
         border: 1px solid rgba(255,255,255,0.1);
         position: relative; overflow: hidden;
-        box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+        box-shadow: 0 8px 32px rgba(0,0,0,0.2), 0 2px 8px rgba(0,0,0,0.1);
       }
       .sos-slider-dots {
         position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
-        display: flex; gap: 8px; pointer-events: none;
+        display: flex; gap: 20px; pointer-events: none;
       }
       .sos-slider-dots span {
-        width: 5px; height: 5px; border-radius: 50%;
-        background: rgba(255,255,255,0.2);
+        width: 6px; height: 6px; border-radius: 50%;
+        background: rgba(255,255,255,0.15);
       }
       .sos-slider-label {
-        position: absolute; top: 50%; right: 24px; transform: translateY(-50%);
-        font-size: 15px; font-weight: 600; color: rgba(255,255,255,0.35);
+        position: absolute; top: 50%; right: 32px; transform: translateY(-50%);
+        font-size: 16px; font-weight: 600; color: rgba(255,255,255,0.4);
         pointer-events: none; letter-spacing: 0.5px;
       }
       .sos-slider-thumb {
-        width: 56px; height: 56px; border-radius: 50%;
-        background: linear-gradient(135deg, #a3e635, #34d399);
-        position: absolute; top: 4px; left: 4px;
+        width: 60px; height: 60px; border-radius: 50%;
+        background: linear-gradient(135deg, #ef4444, #dc2626);
+        position: absolute; top: 5px; left: 6px;
         cursor: grab; touch-action: none;
         display: flex; align-items: center; justify-content: center;
-        box-shadow: 0 0 20px rgba(163,230,53,0.4);
+        box-shadow: 0 0 20px rgba(239, 68, 68, 0.4);
         transition: box-shadow 0.3s;
         z-index: 2;
       }
-      .sos-slider-thumb:active { cursor: grabbing; box-shadow: 0 0 30px rgba(163,230,53,0.6); }
+      .sos-slider-thumb:active { cursor: grabbing; box-shadow: 0 0 30px rgba(239, 68, 68, 0.6); }
       .sos-slider-thumb svg {
-        width: 22px; height: 22px; stroke: rgba(0,0,0,0.6); stroke-width: 2.5; fill: none;
+        width: 24px; height: 24px; stroke: #ffffff; stroke-width: 2.5; fill: none;
       }
 
       /* ─── SOS ALERT OVERLAY ─── */

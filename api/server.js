@@ -680,13 +680,19 @@ app.post('/api/family/add', async (req, res) => {
     // Check if the member exists in Supabase
     const { supabase } = require('../lib/supabaseClient.cjs');
     if (supabase) {
-      const { data: profiles, error } = await supabase
-        .from('profiles')
-        .select('username')
-        .eq('username', memberUsername);
-      
-      if (error || !profiles || profiles.length === 0) {
-        return res.status(404).json({ error: `No user found with username "${memberUsername}"` });
+      try {
+        const { data: profiles, error } = await supabase
+          .from('profiles')
+          .select('username')
+          .ilike('username', memberUsername);
+        
+        if (error) {
+          console.warn('Supabase check failed (maybe table missing), skipping check:', error.message);
+        } else if (!profiles || profiles.length === 0) {
+          return res.status(404).json({ error: `No user found with username "${memberUsername}"` });
+        }
+      } catch (e) {
+        console.warn('Supabase check exception:', e.message);
       }
     }
 
