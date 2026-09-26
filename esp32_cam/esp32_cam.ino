@@ -71,6 +71,10 @@ void setup() {
   Serial.println("Starting ESP32-CAM (WebSocket Mode)...");
 
   // 1. CONNECT TO WIFI
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect(true);
+  delay(100);
+
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);

@@ -237,10 +237,37 @@ void setup() {
   WiFi.disconnect(true);     
   delay(100);                
   
+  Serial.println("\n[WIFI] Scanning for available networks...");
+  int n = WiFi.scanNetworks();
+  if (n == 0) {
+    Serial.println("[WIFI] No networks found at all! Check antenna or hotspot 2.4GHz setting.");
+  } else {
+    Serial.printf("[WIFI] %d networks found:\n", n);
+    bool foundHotspot = false;
+    for (int i = 0; i < n; ++i) {
+      Serial.printf("  %d: %s (RSSI: %d, Ch: %d)\n", i + 1, WiFi.SSID(i).c_str(), WiFi.RSSI(i), WiFi.channel(i));
+      if (WiFi.SSID(i) == ssid) {
+        foundHotspot = true;
+      }
+      delay(10);
+    }
+    if (foundHotspot) {
+      Serial.printf("[WIFI] Your hotspot '%s' is VISIBLE. Attempting to connect...\n", ssid);
+    } else {
+      Serial.printf("[WIFI] Your hotspot '%s' is NOT VISIBLE to the ESP32. It might be on 5GHz or out of range.\n", ssid);
+    }
+  }
+  
   WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
+  int connectAttempts = 0;
+  while (WiFi.status() != WL_CONNECTED && connectAttempts < 20) {
     delay(500);
     Serial.print(".");
+    connectAttempts++;
+  }
+  
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("\n[WIFI] Failed to connect after 10 seconds! Incorrect password or DHCP issue.");
   }
   Serial.println("\nWiFi Connected!");
   Serial.print("IP Address: ");
