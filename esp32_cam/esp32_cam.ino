@@ -62,8 +62,14 @@ void handleCapture() {
   server.sendHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   server.sendHeader("Cache-Control", "no-cache, no-store");
   
-  // Send the JPEG using the WebServer's built-in binary send method
-  server.send(200, "image/jpeg", (const char *)fb->buf, fb->len);
+  // Tell WebServer the exact size of the binary data we are about to send
+  server.setContentLength(fb->len);
+  
+  // Send HTTP headers (empty string prevents WebServer from appending a text body)
+  server.send(200, "image/jpeg", "");
+  
+  // Write the raw JPEG binary data directly to the client socket
+  server.client().write(fb->buf, fb->len);
   
   esp_camera_fb_return(fb);
   Serial.printf("[CAM] Served JPEG: %u bytes\n", fb->len);
