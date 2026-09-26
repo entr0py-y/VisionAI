@@ -3,15 +3,12 @@
 #include <WebServer.h>
 
 // ===========================
-// CONFIGURATION — Connect to VisionAID SoftAP
+// CONFIGURATION — SoftAP Mode (ESP32-CAM creates VisionAID Wi-Fi)
 // ===========================
 const char *ssid = "VisionAID";
 const char *password = "visionaid123";
 
-// Static IP on the SoftAP network (ESP32-MIC is 192.168.4.1)
-IPAddress local_IP(192, 168, 4, 2);
-IPAddress gateway(192, 168, 4, 1);
-IPAddress subnet(255, 255, 255, 0);
+// SoftAP default IP is 192.168.4.1
 
 // ===========================
 // CAMERA PINS (AI-Thinker)
@@ -167,15 +164,6 @@ void initCameraHardware() {
 
   // Camera init
   camInitError = esp_camera_init(&config);
-  
-  // If standard UXGA/SVGA init failed, retry with conservative VGA config
-  if (camInitError != ESP_OK) {
-    Serial.printf("[CAM] Standard init returned 0x%x, trying fallback VGA config...\n", camInitError);
-    config.frame_size = FRAMESIZE_VGA;
-    config.jpeg_quality = 12;
-    config.fb_count = 1;
-    camInitError = esp_camera_init(&config);
-  }
 
   if (camInitError != ESP_OK) {
     camInitialized = false;
@@ -202,7 +190,7 @@ void setup() {
   Serial.setDebugOutput(true); // Enables low-level ESP-IDF camera driver logs in Serial Monitor
   delay(1000); // Allow serial monitor to catch boot messages
   Serial.println("\n\n========================================");
-  Serial.println("  Starting ESP32-CAM (SoftAP Client Mode)");
+  Serial.println("  Starting ESP32-CAM (SoftAP Server Mode)");
   Serial.println("========================================");
 
   // Diagnostic: Check Chip & PSRAM
@@ -215,38 +203,16 @@ void setup() {
   }
   Serial.printf("[SYSTEM] Free internal heap: %u bytes\n", ESP.getFreeHeap());
 
-  // STEP 1: INITIALIZE CAMERA FIRST (Before Wi-Fi turns on!)
-  // Eliminates voltage drops and DMA contention that cause -1 (ESP_FAIL)
+  // STEP 1: INITIALIZE CAMERA FIRST (Before Wi-Fi AP turns on)
   Serial.println("[CAM] Initializing camera hardware first...");
   initCameraHardware();
 
-  // STEP 2: CONNECT TO VisionAID NETWORK (created by ESP32-MIC)
-  WiFi.mode(WIFI_STA);
-  WiFi.config(local_IP, gateway, subnet);
-  WiFi.begin(ssid, password);
-  
-  Serial.printf("[WIFI] Connecting to '%s'...\n", ssid);
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 40) {
-    delay(500);
-    Serial.print(".");
-    attempts++;
-  }
-  
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("\n[WIFI] Initial connect failed. Retrying indefinitely...");
-    Serial.println("[WIFI] Make sure ESP32-MIC is powered on and broadcasting VisionAID network.");
-    while (WiFi.status() != WL_CONNECTED) {
-      WiFi.disconnect();
-      delay(1000);
-      WiFi.begin(ssid, password);
-      delay(5000);
-      Serial.print("R");
-    }
-  }
-  
-  Serial.println("\n[WIFI] Connected to VisionAID!");
-  Serial.printf("[WIFI] IP Address: %s\n", WiFi.localIP().toString().c_str());
+  // STEP 2: CREATE VisionAID SOFTAP
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP(ssid, password);
+  delay(200);
+  Serial.printf("[AP] SoftAP '%s' started!\n", ssid);
+  Serial.printf("[AP] IP Address: %s\n", WiFi.softAPIP().toString().c_str());
 
   // STEP 3: START LOCAL HTTP SERVER
   server.on("/capture", HTTP_GET, handleCapture);
@@ -258,33 +224,14 @@ void setup() {
   server.begin();
   
   Serial.println("\n========================================");
-  Serial.println("  ESP32-CAM Ready (SoftAP Client)!");
+  Serial.println("  ESP32-CAM Ready (SoftAP Server)!");
   Serial.printf("  Camera Status: %s\n", camInitialized ? "READY" : "FAILED");
-  Serial.printf("  Connected to: %s\n", ssid);
-  Serial.printf("  Capture URL: http://%s/capture\n", WiFi.localIP().toString().c_str());
-  Serial.printf("  Status URL:  http://%s/status\n", WiFi.localIP().toString().c_str());
+  Serial.printf("  SoftAP SSID:   %s\n", ssid);
+  Serial.printf("  Capture URL:   http://%s/capture\n", WiFi.softAPIP().toString().c_str());
+  Serial.printf("  Status URL:    http://%s/status\n", WiFi.softAPIP().toString().c_str());
   Serial.println("========================================\n");
 }
 
 void loop() {
   server.handleClient();
-  
-  // Auto-reconnect to VisionAID network if disconnected
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("[WIFI] Disconnected from VisionAID! Reconnecting...");
-    WiFi.disconnect();
-    delay(1000);
-    WiFi.begin(ssid, password);
-    
-    int attempts = 0;
-    while (WiFi.status() != WL_CONNECTED && attempts < 20) {
-      delay(500);
-      Serial.print(".");
-      attempts++;
-    }
-    
-    if (WiFi.status() == WL_CONNECTED) {
-      Serial.println("\n[WIFI] Reconnected!");
-    }
-  }
 }

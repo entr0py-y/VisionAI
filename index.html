@@ -3679,9 +3679,9 @@ function navSOS(el) {
     <!-- LOCAL HARDWARE PIPELINE (SoftAP: ESP32-MIC → Phone → Render Cloud) -->
     <script>
       document.addEventListener("DOMContentLoaded", () => {
-         // ─── LOCAL NETWORK ADDRESSES ───
-         const ESP32_MIC_WS = "ws://192.168.4.1:81";
-         const ESP32_CAM_URL = "http://192.168.4.2";
+         // ─── LOCAL NETWORK ADDRESSES (ESP32-CAM is SoftAP 192.168.4.1, ESP32-MIC is 192.168.4.2) ───
+         const ESP32_MIC_WS = "ws://192.168.4.2:81";
+         const ESP32_CAM_URL = "http://192.168.4.1";
          const RENDER_WS_URL = "wss://visionaid-5ut9.onrender.com/api/pi/ws";
          const RENDER_SSE_URL = "https://visionaid-5ut9.onrender.com/api/stream";
 

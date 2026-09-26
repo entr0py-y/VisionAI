@@ -3,10 +3,15 @@
 #include <driver/i2s.h>
 
 // ===========================
-// CONFIGURATION — SoftAP Mode
+// CONFIGURATION — Station Mode (Connects to ESP32-CAM's VisionAID network)
 // ===========================
-const char* ap_ssid = "VisionAID";
-const char* ap_password = "visionaid123";
+const char* ssid = "VisionAID";
+const char* password = "visionaid123";
+
+// Static IP on the ESP32-CAM network
+IPAddress local_IP(192, 168, 4, 2);
+IPAddress gateway(192, 168, 4, 1);
+IPAddress subnet(255, 255, 255, 0);
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ESP32-S3 N16R8 PIN MAPPING
@@ -296,19 +301,31 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("Starting ESP32-S3 Mic — SoftAP Mode...");
+  Serial.println("Starting ESP32-S3 Mic (Station Mode)...");
   Serial.printf("[SYS] Chip: %s  Rev: %d  Cores: %d\n", 
                 ESP.getChipModel(), ESP.getChipRevision(), ESP.getChipCores());
   Serial.printf("[SYS] Flash: %u KB  PSRAM: %u KB\n", 
                 ESP.getFlashChipSize() / 1024, ESP.getPsramSize() / 1024);
 
-  // 1. CREATE SOFTAP NETWORK
-  WiFi.mode(WIFI_AP);
-  WiFi.softAP(ap_ssid, ap_password);
-  delay(100);
-  Serial.printf("\n[AP] Network '%s' created successfully!\n", ap_ssid);
-  Serial.printf("[AP] Password: %s\n", ap_password);
-  Serial.printf("[AP] IP Address: %s\n", WiFi.softAPIP().toString().c_str());
+  // 1. CONNECT TO ESP32-CAM VisionAID NETWORK
+  WiFi.mode(WIFI_STA);
+  WiFi.config(local_IP, gateway, subnet);
+  WiFi.begin(ssid, password);
+  Serial.printf("\n[WIFI] Connecting to ESP32-CAM '%s'...\n", ssid);
+  
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 30) {
+    delay(500);
+    Serial.print(".");
+    attempts++;
+  }
+  
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\n[WIFI] Connected to ESP32-CAM!");
+    Serial.printf("[WIFI] IP Address: %s\n", WiFi.localIP().toString().c_str());
+  } else {
+    Serial.println("\n[WIFI] Initial connect failed, will auto-reconnect in loop.");
+  }
 
   // LED setup
 #if !defined(RGB_BUILTIN)
@@ -427,6 +444,17 @@ void loop() {
   }
   
   lastTouchState = currentTouchState;
+
+  // Auto-reconnect to ESP32-CAM if connection drops
+  if (WiFi.status() != WL_CONNECTED) {
+    static unsigned long lastReconnect = 0;
+    if (millis() - lastReconnect > 5000) {
+      lastReconnect = millis();
+      Serial.println("[WIFI] Reconnecting to ESP32-CAM...");
+      WiFi.disconnect();
+      WiFi.begin(ssid, password);
+    }
+  }
 
   // ─── REAL-TIME AUDIO STREAMING ───
   if (isRecording && pcm32Buffer && pcm16Buffer) {

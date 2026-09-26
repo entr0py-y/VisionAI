@@ -136,8 +136,8 @@ const VisionController = (() => {
 
        console.log('Fetching image from local ESP32-CAM...');
 
-       // Capture JPEG directly from local ESP32-CAM HTTP server
-       const ESP32_CAM_URL = "http://192.168.4.2";
+       // Capture JPEG directly from local ESP32-CAM HTTP server (SoftAP 192.168.4.1)
+       const ESP32_CAM_URL = "http://192.168.4.1";
        const captureResp = await fetch(`${ESP32_CAM_URL}/capture`);
        if (!captureResp.ok) {
          const errText = await captureResp.text().catch(() => '');
