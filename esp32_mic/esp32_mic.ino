@@ -14,93 +14,80 @@ const char* serverIp = "visionaid-5ut9.onrender.com";
 const int serverPort = 443;
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// ESP32-S3 N16R8 PIN MAPPING
+// ESP32 DEV MODULE (WROOM-32 / DevKit) PIN MAPPING
 // ═══════════════════════════════════════════════════════════════════════════════
 //
-//  ┌─────────────────────────────────────────┐
-//  │         ESP32-S3 N16R8 DevKitC          │
-//  │                                         │
-//  │  [USB]                          [USB-C]  │
-//  │                                         │
-//  │  3V3 ─── VCC for INMP441, HC-SR501      │
-//  │  GND ─── GND for all modules            │
-//  │                                         │
-//  │  GPIO 4  ─── I2S_SCK  (INMP441 SCK)    │
-//  │  GPIO 5  ─── I2S_WS   (INMP441 WS)     │
-//  │  GPIO 6  ─── I2S_SD   (INMP441 SD)     │
-//  │                                         │
-//  │  GPIO 15 ─── PIR_PIN  (HC-SR501 OUT)    │
-//  │  GPIO 16 ─── ULTRASONIC_TRIG (HC-SR04)  │
-//  │  GPIO 17 ─── ULTRASONIC_ECHO (HC-SR04)  │
-//  │                                         │
-//  │  GPIO 18 ─── TOUCH_PIN (Push button)    │
-//  │                                         │
-//  │  GPIO 48 ─── On-board RGB LED (WS2812)  │
-//  │              (or GPIO 2 on some boards)  │
-//  └─────────────────────────────────────────┘
+//  ┌────────────────────────────────────────────────────────┐
+//  │             ESP32 Dev Module (WROOM-32)                │
+//  │                                                        │
+//  │  3V3  ─── VCC for INMP441, HC-SR501, Push Button       │
+//  │  VIN  ─── 5V VCC for HC-SR04                           │
+//  │  GND  ─── GND for all modules                          │
+//  │                                                        │
+//  │  GPIO 26 ─── I2S_SCK  (INMP441 BCLK / SCK)             │
+//  │  GPIO 25 ─── I2S_WS   (INMP441 LRCLK / WS)             │
+//  │  GPIO 33 ─── I2S_SD   (INMP441 DOUT / SD)              │
+//  │                                                        │
+//  │  GPIO 18 ─── TOUCH_PIN (Push-to-Talk button)           │
+//  │  GPIO 19 ─── PIR_PIN   (HC-SR501 Motion OUT)           │
+//  │  GPIO 5  ─── TRIG_PIN  (HC-SR04 Trigger)               │
+//  │  GPIO 17 ─── ECHO_PIN  (HC-SR04 Echo via 5V->3.3V div) │
+//  │                                                        │
+//  │  GPIO 2  ─── On-board Blue LED                         │
+//  └────────────────────────────────────────────────────────┘
 //
 // ═══════════════════════════════════════════════════════════════════════════════
 // WIRING GUIDE
 // ═══════════════════════════════════════════════════════════════════════════════
 //
-//  INMP441 Microphone:
-//    VDD  → 3V3
+//  INMP441 Microphone (I2S):
+//    VDD  → 3.3V
 //    GND  → GND
-//    L/R  → GND (left channel)
-//    SCK  → GPIO 4
-//    WS   → GPIO 5
-//    SD   → GPIO 6
-//
-//  HC-SR501 PIR Sensor:
-//    VCC  → 3V3 (or 5V via VIN if available)
-//    GND  → GND
-//    OUT  → GPIO 15
-//
-//  HC-SR04 Ultrasonic Sensor:
-//    VCC  → 5V (use VIN / VBUS pin)
-//    GND  → GND
-//    TRIG → GPIO 16
-//    ECHO → GPIO 17 (⚠ use voltage divider: 5V→3.3V)
+//    L/R  → GND (Left channel)
+//    SCK  → GPIO 26
+//    WS   → GPIO 25
+//    SD   → GPIO 33
 //
 //  Push-To-Talk Button:
-//    One leg  → GPIO 18
-//    Other leg → GND
-//    (using INPUT_PULLUP, press = LOW)
+//    Signal → GPIO 18 (Using internal pulldown or push button to 3.3V)
+//
+//  HC-SR501 PIR Sensor:
+//    VCC  → 5V (VIN) or 3.3V
+//    GND  → GND
+//    OUT  → GPIO 19
+//
+//  HC-SR04 Ultrasonic Sensor:
+//    VCC  → 5V (VIN)
+//    GND  → GND
+//    TRIG → GPIO 5
+//    ECHO → 1kΩ resistor → GPIO 17 → 2kΩ resistor → GND (voltage divider)
 //
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // ===========================
-// I2S MIC PINS (INMP441) — ESP32-S3
+// I2S MIC PINS (INMP441) — ESP32 Dev Module
 // ===========================
-#define I2S_SCK   4    // Bit clock (BCLK)
-#define I2S_WS    5    // Word select (LRCLK)
-#define I2S_SD    6    // Serial data (DOUT on INMP441)
+#define I2S_SCK   26   // Bit clock (BCLK)
+#define I2S_WS    25   // Word select (LRCLK)
+#define I2S_SD    33   // Serial data in (DOUT on INMP441)
 #define I2S_PORT  I2S_NUM_0
 
 // ===========================
-// EXTERNAL TOUCH BUTTON
+// EXTERNAL BUTTON & LED
 // ===========================
-#define TOUCH_PIN  18
-
-// ===========================
-// STATUS LED
-// ===========================
-// ESP32-S3-DevKitC boards typically have an addressable RGB LED on GPIO 48.
-// For a simple HIGH/LOW indicator, we use the neopixelWrite() function
-// which is built into the ESP32-S3 Arduino core.
-// If your board has a regular LED on GPIO 2 instead, change this to 2.
-#define LED_PIN    48
+#define TOUCH_PIN  18  // Push-to-Talk Button
+#define LED_PIN    2   // On-board Blue LED for ESP32 Dev Module
 
 // ===========================
 // SPATIAL SENSORS
 // ===========================
-#define PIR_PIN          15   // HC-SR501 PIR Motion Sensor
-#define ULTRASONIC_TRIG  16   // HC-SR04 Trigger
-#define ULTRASONIC_ECHO  17   // HC-SR04 Echo (use voltage divider 5V→3.3V!)
+#define PIR_PIN          19   // HC-SR501 PIR Motion Sensor
+#define ULTRASONIC_TRIG  5    // HC-SR04 Trigger
+#define ULTRASONIC_ECHO  17   // HC-SR04 Echo (5V to 3.3V divider)
 
 WebSocketsClient webSocket;
 bool isRecording = false;
-bool lastTouchState = LOW;  // Changed: Module outputs HIGH when pressed
+bool lastTouchState = LOW;
 unsigned long lastSensorSend = 0;
 unsigned long lastHeapLog = 0;
 
@@ -108,28 +95,20 @@ unsigned long lastHeapLog = 0;
 uint8_t* pcm32Buffer = nullptr; 
 int16_t* pcm16Buffer = nullptr;
 
-// Adaptive telemetry — fast when sensors detect proximity, slow when idle
+// Adaptive telemetry
 const unsigned long ALERT_INTERVAL = 200;   // 200ms in HIGH ALERT mode
 const unsigned long IDLE_INTERVAL  = 400;   // 400ms in IDLE mode
 unsigned long currentSensorInterval = IDLE_INTERVAL;
 
 // ===========================
-// LED HELPER (S3 RGB LED)
+// LED HELPERS (Standard GPIO 2)
 // ===========================
 void ledOn() {
-#if defined(RGB_BUILTIN)
-  neopixelWrite(LED_PIN, 0, 20, 0);  // Green, low brightness
-#else
   digitalWrite(LED_PIN, HIGH);
-#endif
 }
 
 void ledOff() {
-#if defined(RGB_BUILTIN)
-  neopixelWrite(LED_PIN, 0, 0, 0);   // Off
-#else
   digitalWrite(LED_PIN, LOW);
-#endif
 }
 
 void ledBlink(int times, int ms) {
@@ -143,7 +122,6 @@ void ledBlink(int times, int ms) {
 // ULTRASONIC DISTANCE READER
 // Median-of-5 + EMA smoothing
 // ===========================
-
 float emaDistance = -1;
 const float EMA_ALPHA = 0.3;
 
@@ -226,11 +204,12 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("Starting ESP32-S3 Mic with WebSockets + Spatial Sensors...");
+  Serial.println("\n==================================================");
+  Serial.println("Starting ESP32 Dev Module Mic + Spatial Sensors...");
   Serial.printf("[SYS] Chip: %s  Rev: %d  Cores: %d\n", 
                 ESP.getChipModel(), ESP.getChipRevision(), ESP.getChipCores());
-  Serial.printf("[SYS] Flash: %u KB  PSRAM: %u KB\n", 
-                ESP.getFlashChipSize() / 1024, ESP.getPsramSize() / 1024);
+  Serial.printf("[SYS] Free Heap: %u bytes\n", ESP.getFreeHeap());
+  Serial.println("==================================================");
 
   // 1. CONNECT TO WIFI
   WiFi.mode(WIFI_STA);       
@@ -267,24 +246,28 @@ void setup() {
   }
   
   if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("\n[WIFI] Failed to connect after 10 seconds! Incorrect password or DHCP issue.");
+    Serial.println("\n[WIFI] Failed to connect after 10 seconds! Check password or 2.4GHz hotspot.");
+  } else {
+    Serial.println("\n[WIFI] Connected!");
+    Serial.print("[WIFI] IP Address: ");
+    Serial.println(WiFi.localIP());
   }
-  Serial.println("\nWiFi Connected!");
-  Serial.print("IP Address: ");
-  Serial.println(WiFi.localIP());
 
-  // LED setup
-#if !defined(RGB_BUILTIN)
+  // LED Setup
   pinMode(LED_PIN, OUTPUT);
-#endif
+  ledOff();
 
-  // 2. CONFIGURE I2S MIC (ESP32-S3 compatible)
+  // 2. CONFIGURE I2S MIC (ESP32 Dev Module WROOM)
   i2s_config_t i2s_config = {
     .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
     .sample_rate = 16000,
     .bits_per_sample = I2S_BITS_PER_SAMPLE_32BIT,
     .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
-    .communication_format = I2S_COMM_FORMAT_STAND_I2S,  // S3 uses updated format constant
+#if defined(I2S_COMM_FORMAT_STAND_I2S)
+    .communication_format = I2S_COMM_FORMAT_STAND_I2S,
+#else
+    .communication_format = (i2s_comm_format_t)(I2S_COMM_FORMAT_I2S | I2S_COMM_FORMAT_I2S_MSB),
+#endif
     .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
     .dma_buf_count = 16,
     .dma_buf_len = 1024,
@@ -296,7 +279,7 @@ void setup() {
   i2s_pin_config_t pin_config = {
     .bck_io_num = I2S_SCK,
     .ws_io_num = I2S_WS,
-    .data_out_num = I2S_PIN_NO_CHANGE,
+    .data_out_num = -1,
     .data_in_num = I2S_SD
   };
   
@@ -309,7 +292,7 @@ void setup() {
   Serial.println("I2S Mic initialized.");
 
   // 3. CONFIGURE SENSOR PINS
-  pinMode(TOUCH_PIN, INPUT_PULLDOWN);  // Module: pull down, press = HIGH
+  pinMode(TOUCH_PIN, INPUT_PULLDOWN);
   pinMode(PIR_PIN, INPUT);          
   pinMode(ULTRASONIC_TRIG, OUTPUT);
   pinMode(ULTRASONIC_ECHO, INPUT); 
@@ -328,8 +311,7 @@ void loop() {
   // Periodic heap log (30s)
   if (millis() - lastHeapLog > 30000) {
     lastHeapLog = millis();
-    Serial.printf("[MEM] Free heap: %u bytes | PSRAM free: %u bytes\n", 
-                  ESP.getFreeHeap(), ESP.getFreePsram());
+    Serial.printf("[MEM] Free heap: %u bytes\n", ESP.getFreeHeap());
   }
   
   if (WiFi.status() != WL_CONNECTED) {
@@ -357,7 +339,6 @@ void loop() {
   }
 
   // ─── PUSH-TO-TALK BUTTON HANDLING ───
-  // INPUT_PULLDOWN: idle = LOW, pressed = HIGH
   bool currentTouchState = digitalRead(TOUCH_PIN);
   
   // Button pressed (LOW→HIGH transition)
@@ -368,8 +349,8 @@ void loop() {
       
       webSocket.sendTXT("START");
       
-      // Allocate audio buffers — use PSRAM if available for stability
-      if (ESP.getFreePsram() > 4096) {
+      // Allocate audio buffers in SRAM (or PSRAM if board supports it)
+      if (psramFound() && ESP.getFreePsram() > 4096) {
         pcm32Buffer = (uint8_t*)ps_malloc(2048);
         pcm16Buffer = (int16_t*)ps_malloc(1024);
         Serial.println("[MEM] Audio buffers allocated in PSRAM");
@@ -399,7 +380,6 @@ void loop() {
     
     isRecording = false;
     
-    // Heap monitoring & auto-restart safeguard
     uint32_t freeHeap = ESP.getFreeHeap();
     Serial.printf("[MEM] Final heap after session: %u bytes\n", freeHeap);
     
