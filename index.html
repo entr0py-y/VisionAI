@@ -283,7 +283,6 @@
       .widgets-row {
         display: grid;
         grid-template-columns: repeat(2, 1fr);
-        grid-auto-rows: 1fr;
         gap: 6px;
         margin-bottom: 8px;
         padding: 0;
@@ -454,6 +453,9 @@
         line-height: 1.2;
         margin-bottom: 4px;
         color: var(--accent);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
       .widget-coords {
