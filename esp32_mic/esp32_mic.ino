@@ -1,16 +1,13 @@
 #include <WiFi.h>
-#include <WiFiClientSecure.h>
-#include <WebSocketsClient.h>
+#include <WebSocketsServer.h>
 #include <driver/i2s.h>
 
 // ===========================
 // CONFIGURATION
 // ===========================
-const char* ssid = "Heisenberg";
-const char* password = "11111111";
-
-const char* serverIp = "visionaid-5ut9.onrender.com";
-const int serverPort = 443;
+// This ESP32 acts as the Wi-Fi Router (Access Point)
+const char* ap_ssid = "VisionAI";
+const char* ap_pass = "11111111";
 
 // I2S MIC PINS (INMP441)
 #define I2S_SCK   26   
@@ -27,8 +24,9 @@ const int serverPort = 443;
 #define ULTRASONIC_TRIG  5    
 #define ULTRASONIC_ECHO  17   
 
-WebSocketsClient webSocket;
-bool wsConnected = false;
+// Local WebSocket Server (Runs on port 81)
+WebSocketsServer webSocket = WebSocketsServer(81);
+
 bool isRecording = false;
 
 // Debouncing variables
@@ -39,7 +37,6 @@ const unsigned long DEBOUNCE_DELAY = 50;
 
 unsigned long lastSensorSend = 0;
 unsigned long lastHeapLog = 0;
-unsigned long lastWiFiCheck = 0;
 
 // Global audio buffers to prevent heap fragmentation
 #define AUDIO_BUFFER_SAMPLES 512
@@ -59,6 +56,9 @@ void ledBlink(int times, int ms) {
   }
 }
 
+// ===========================
+// SENSOR HELPERS
+// ===========================
 float emaDistance = -1;
 const float EMA_ALPHA = 0.3;
 const int SENSOR_WINDOW_SIZE = 5;
@@ -101,7 +101,6 @@ long readDistanceCM() {
       validSamples[validCount++] = distBuffer[i];
     }
   }
-
   if (validCount == 0) return -1;
 
   sortArray(validSamples, validCount);
@@ -112,39 +111,54 @@ long readDistanceCM() {
   } else {
     emaDistance = EMA_ALPHA * median + (1.0 - EMA_ALPHA) * emaDistance;
   }
-
   return (long)(emaDistance + 0.5);
 }
 
-void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
+// ===========================
+// WEBSOCKET EVENTS
+// ===========================
+void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
   switch(type) {
     case WStype_DISCONNECTED:
-      Serial.println("[WS] Disconnected from server!");
-      wsConnected = false;
+      Serial.printf("[WS] Phone/Client #%u disconnected!\n", num);
       break;
-    case WStype_CONNECTED:
-      Serial.printf("[WS] Connected to %s\n", payload);
-      wsConnected = true;
+    case WStype_CONNECTED: {
+      IPAddress ip = webSocket.remoteIP(num);
+      Serial.printf("[WS] Phone/Client #%u connected from %d.%d.%d.%d\n", num, ip[0], ip[1], ip[2], ip[3]);
       ledBlink(3, 100);
+      webSocket.sendTXT(num, "{\"type\":\"ESP32_MIC_CONNECTED\"}");
       break;
+    }
     case WStype_TEXT:
-      Serial.printf("[WS] Received msg: %s\n", payload);
+      Serial.printf("[WS] Msg from #%u: %s\n", num, payload);
       break;
     default:
       break;
   }
 }
 
+// ===========================
+// SETUP
+// ===========================
 void setup() {
   Serial.begin(115200);
-  Serial.println("\nStarting ESP32 Mic + Sensors...");
+  Serial.println("\n========================================");
+  Serial.println("[SYS] Starting ESP32 Mic (AP & Server)");
+  Serial.println("========================================");
 
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
-  
+  // 1. CREATE WI-FI NETWORK
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP(ap_ssid, ap_pass);
+  Serial.print("[WIFI] Access Point Started! Connect phone to '");
+  Serial.print(ap_ssid);
+  Serial.println("'");
+  Serial.print("[WIFI] ESP32 AP IP Address: ");
+  Serial.println(WiFi.softAPIP()); // This is always 192.168.4.1
+
   pinMode(LED_PIN, OUTPUT);
   ledOff();
 
+  // 2. CONFIGURE I2S MIC
   i2s_config_t i2s_config = {
     .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
     .sample_rate = 16000,
@@ -174,41 +188,27 @@ void setup() {
   i2s_set_pin(I2S_PORT, &pin_config);
   i2s_zero_dma_buffer(I2S_PORT);
 
+  // 3. CONFIGURE SENSORS
   pinMode(TOUCH_PIN, INPUT_PULLDOWN);
   pinMode(PIR_PIN, INPUT);          
   pinMode(ULTRASONIC_TRIG, OUTPUT);
   pinMode(ULTRASONIC_ECHO, INPUT); 
 
-  webSocket.beginSSL(serverIp, serverPort, "/api/pi/ws");
+  // 4. START WEBSOCKET SERVER
+  webSocket.begin();
   webSocket.onEvent(webSocketEvent);
-  webSocket.setReconnectInterval(5000);
+  Serial.println("[WS] Server running on ws://192.168.4.1:81");
 }
 
+// ===========================
+// MAIN LOOP
+// ===========================
 void loop() {
-  webSocket.loop();
+  webSocket.loop(); // Handle WS clients
 
-  // WiFi Reconnection Logic
-  if (WiFi.status() != WL_CONNECTED) {
-    if (millis() - lastWiFiCheck >= 5000) {
-      Serial.println("[WIFI] Disconnected. Reconnecting...");
-      WiFi.disconnect();
-      WiFi.reconnect();
-      lastWiFiCheck = millis();
-    }
-    return;
-  }
-
-  // Periodic memory log
-  if (millis() - lastHeapLog > 30000) {
+  if (millis() - lastHeapLog > 60000) {
     lastHeapLog = millis();
     Serial.printf("[MEM] Free heap: %u bytes\n", ESP.getFreeHeap());
-  }
-  
-  // Guard against recording while disconnected
-  if (isRecording && !wsConnected) {
-    isRecording = false;
-    ledOff();
-    Serial.println("[PTT] WS disconnected! Stopping recording.");
   }
 
   // ─── SENSOR TELEMETRY ───
@@ -217,7 +217,8 @@ void loop() {
     int pirState = digitalRead(PIR_PIN);       
     long distanceCM = readDistanceCM();         
     
-    if (wsConnected) {
+    // Only process logic if a client is connected
+    if (webSocket.connectedClients() > 0) {
       bool isAlert = (pirState == 1) || (distanceCM > 0 && distanceCM < 100);
       currentSensorInterval = isAlert ? ALERT_INTERVAL : IDLE_INTERVAL;
       const char* mode = isAlert ? "ALERT" : "IDLE";
@@ -225,7 +226,8 @@ void loop() {
       char sensorJSON[128];
       snprintf(sensorJSON, sizeof(sensorJSON), "{\"type\":\"sensors\",\"p\":%d,\"u\":%ld,\"mode\":\"%s\"}", 
                pirState, distanceCM, mode);
-      webSocket.sendTXT(sensorJSON);
+               
+      webSocket.broadcastTXT(sensorJSON);
     }
   }
 
@@ -240,22 +242,22 @@ void loop() {
       buttonState = reading;
       
       if (buttonState == HIGH) {
-        // BUTTON PRESSED - START
-        if (wsConnected) {
-          Serial.println("[PTT] Button pressed! Starting...");
+        // START RECORDING
+        if (webSocket.connectedClients() > 0) {
+          Serial.println("[PTT] Button pressed! Broadcasting audio...");
           ledOn();
-          webSocket.sendTXT("START");
+          webSocket.broadcastTXT("START");
           isRecording = true;
           i2s_zero_dma_buffer(I2S_PORT);
         } else {
-          Serial.println("[ERR] WS not connected, cannot stream.");
+          Serial.println("[ERR] No phone connected. Cannot stream audio.");
         }
       } else {
-        // BUTTON RELEASED - STOP
+        // STOP RECORDING
         if (isRecording) {
-          Serial.println("[PTT] Released! Stopping...");
+          Serial.println("[PTT] Released! Stopping stream.");
           ledOff();
-          webSocket.sendTXT("STOP");
+          webSocket.broadcastTXT("STOP");
           isRecording = false;
         }
       }
@@ -265,6 +267,14 @@ void loop() {
 
   // ─── REAL-TIME AUDIO STREAMING ───
   if (isRecording) {
+    // If the phone disconnects mid-recording, stop to save power
+    if (webSocket.connectedClients() == 0) {
+      Serial.println("[PTT] Phone disconnected mid-stream! Stopping.");
+      isRecording = false;
+      ledOff();
+      return;
+    }
+
     size_t bytesRead = 0;
     esp_err_t result = i2s_read(I2S_PORT, pcm32Buffer, sizeof(pcm32Buffer), &bytesRead, 100 / portTICK_PERIOD_MS);
 
@@ -286,7 +296,7 @@ void loop() {
       }
       
       int bytesToSend = samplesRead * 2;
-      webSocket.sendBIN((uint8_t*)pcm16Buffer, bytesToSend);
+      webSocket.broadcastBIN((uint8_t*)pcm16Buffer, bytesToSend);
     }
   }
 }
