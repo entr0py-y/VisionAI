@@ -138,7 +138,7 @@ const VisionController = (() => {
        
        if (espData.qrUrl) {
          setTimeout(() => {
-           window.open(espData.qrUrl, '_blank');
+           window.location.href = espData.qrUrl;
          }, 1500); // Wait a moment for speech to start
        }
 
@@ -194,7 +194,7 @@ const VisionController = (() => {
 
       if (data.qrUrl) {
         setTimeout(() => {
-          window.open(data.qrUrl, '_blank');
+          window.location.href = data.qrUrl;
         }, 1500);
       }
 
