@@ -136,6 +136,12 @@ const VisionController = (() => {
        uiMsg('👁️ ' + description, 'ai', capturedImage);
        speak(description);
        
+       if (espData.qrUrl) {
+         setTimeout(() => {
+           window.open(espData.qrUrl, '_blank');
+         }, 1500); // Wait a moment for speech to start
+       }
+
        // Persist to conversation history if available
        if (typeof conversationHistory !== 'undefined') {
          conversationHistory.push({ role: 'model', text: description });
@@ -186,6 +192,12 @@ const VisionController = (() => {
       uiMsg('👁️ ' + description, 'ai', capturedImage);
       speak(description);
 
+      if (data.qrUrl) {
+        setTimeout(() => {
+          window.open(data.qrUrl, '_blank');
+        }, 1500);
+      }
+
       if (typeof conversationHistory !== 'undefined') {
         conversationHistory.push({ role: 'model', text: description });
         if (typeof saveMemory === 'function') saveMemory();
@@ -218,6 +230,13 @@ const VisionController = (() => {
       const capturedImage = data.image || base64Image || null;
       uiMsg('👁️ ' + description, 'ai', capturedImage);
       speak(description);
+      
+      if (data.qrUrl) {
+        setTimeout(() => {
+          window.open(data.qrUrl, '_blank');
+        }, 1500);
+      }
+      
       return description;
     } catch (err) {
       log('Hardware vision processing error: ' + err.message);
