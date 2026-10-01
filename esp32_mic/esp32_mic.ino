@@ -6,7 +6,7 @@
 // ===========================
 // CONFIGURATION
 // ===========================
-const char* ssid = "Heisenberg";
+const char* ssid = "Heisenberg69";
 const char* password = "11111111";
 
 const char* serverIp = "visionaid-5ut9.onrender.com";
@@ -19,13 +19,13 @@ const int serverPort = 443;
 #define I2S_PORT  I2S_NUM_0
 
 // EXTERNAL BUTTON & LED
-#define TOUCH_PIN  18  
-#define LED_PIN    2   
+#define TOUCH_PIN  13   // Push-to-Talk button (internal pull-down)
+#define LED_PIN    2    // Built-in blue LED on ESP32 Dev Module
 
-// SPATIAL SENSORS
-#define PIR_PIN          19   
-#define ULTRASONIC_TRIG  5    
-#define ULTRASONIC_ECHO  17   
+// SPATIAL SENSORS (ESP32 Dev Module)
+#define PIR_PIN          34   // HC-SR501 PIR (Input-only pin)
+#define ULTRASONIC_TRIG  14   // HC-SR04 Trigger
+#define ULTRASONIC_ECHO  35   // HC-SR04 Echo (Input-only pin, with voltage divider)   
 
 WebSocketsClient webSocket;
 bool wsConnected = false;

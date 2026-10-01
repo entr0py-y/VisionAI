@@ -9,7 +9,7 @@
 // ===========================
 // CONFIGURATION
 // ===========================
-const char *ssid = "Heisenberg";
+const char *ssid = "Heisenberg69";
 const char *password = "11111111";
 
 // Cloud Server Configuration
@@ -156,51 +156,31 @@ void captureAndSendImage(bool isPreload) {
 
   Serial.printf("[CAM] Captured %u bytes\n", fb->len);
 
-  WiFiClientSecure client2;
-  client2.setInsecure(); 
-
-  if (client2.connect(serverIp, serverPort)) {
-    String boundary = "----ESP32CamBoundary";
-    String head = "--" + boundary + "\r\n";
-    head += "Content-Disposition: form-data; name=\"image\"; filename=\"capture.jpg\"\r\n";
-    head += "Content-Type: image/jpeg\r\n\r\n";
-    String tail = "\r\n--" + boundary + "--\r\n";
-    
-    uint32_t totalLen = head.length() + fb->len + tail.length();
-    String path = isPreload ? "/api/pi/image-input?preload=true" : "/api/pi/image-input";
-    
-    client2.print("POST " + path + " HTTP/1.1\r\n");
-    client2.print("Host: " + String(serverIp) + "\r\n");
-    client2.print("Connection: close\r\n");
-    client2.print("Content-Length: " + String(totalLen) + "\r\n");
-    client2.print("Content-Type: multipart/form-data; boundary=" + boundary + "\r\n\r\n");
-    client2.print(head);
-
-    uint8_t *fbBuf = fb->buf;
-    size_t fbLen = fb->len;
-    for (size_t n = 0; n < fbLen; n += 1024) {
-      if (n + 1024 <= fbLen) {
-        client2.write(fbBuf, 1024);
-        fbBuf += 1024;
-      } else {
-        client2.write(fbBuf, fbLen % 1024);
-      }
-    }
-    client2.print(tail);
-
-    long timeout = millis();
-    while (client2.connected() && millis() - timeout < 10000) {
-      webSocket.loop(); // Keep WebSocket alive to prevent drop during slow uploads
-      if (client2.available()) {
-        Serial.print((char)client2.read());
-        timeout = millis();
-      }
-    }
-    Serial.println("\n[UPLOAD] Done!");
-    client2.stop();
-  } else {
-    Serial.println("[UPLOAD] Connection failed!");
+  if (!wsConnected) {
+    Serial.println("[UPLOAD] WS not connected, skipping.");
+    esp_camera_fb_return(fb);
+    return;
   }
-  
+
+  // Send a JSON header so the server knows binary image data is coming
+  String header = isPreload ? "{\"type\":\"CAM_IMAGE\",\"preload\":true}" : "{\"type\":\"CAM_IMAGE\"}";
+  webSocket.sendTXT(header);
+
+  // Send the JPEG image as binary over the existing WebSocket connection
+  // Chunk it to avoid overwhelming the WS buffer
+  uint8_t *fbBuf = fb->buf;
+  size_t fbLen = fb->len;
+  size_t chunkSize = 1024;
+
+  for (size_t offset = 0; offset < fbLen; offset += chunkSize) {
+    size_t len = (offset + chunkSize <= fbLen) ? chunkSize : (fbLen - offset);
+    webSocket.sendBIN(fbBuf + offset, len);
+    webSocket.loop(); // Keep WS alive between chunks
+  }
+
+  // Send end marker so server knows the image is complete
+  webSocket.sendTXT("{\"type\":\"CAM_IMAGE_END\"}");
+
+  Serial.printf("[UPLOAD] Sent %u bytes over WebSocket\n", fbLen);
   esp_camera_fb_return(fb);
 }

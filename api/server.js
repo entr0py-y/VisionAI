@@ -1259,18 +1259,10 @@ app.post('/api/pi/trigger-hardware-camera', (req, res) => {
     return;
   }
 
-  // OPTIMIZED: Use WebSocket to push CAPTURE_NOW instantly instead of polling flag
-  if (wsCAM && wsCAM.readyState === 1) {
-    console.log('[WS-CAM] Sending CAPTURE_NOW via WebSocket');
-    wsCAM.send('CAPTURE_NOW');
-  } else {
-    // Fallback to old polling flag if CAM WebSocket not connected
-    hardwareCameraRequest = true;
-  }
-
+  // Store the deferred response — will be resolved when WebSocket image processing completes
   hardwareCameraDeferredResponse = res; 
   
-  // Use WS if available, otherwise fallback to polling
+  // Send CAPTURE_NOW via WebSocket (once)
   if (wsCAM && wsCAM.readyState === 1) {
     console.log('[WS-CAM] Sending CAPTURE_NOW via WebSocket');
     wsCAM.send('CAPTURE_NOW');
@@ -1279,13 +1271,14 @@ app.post('/api/pi/trigger-hardware-camera', (req, res) => {
     hardwareCameraRequest = true;
   }
 
+  // Timeout: must be under Render's 30s gateway limit
   setTimeout(() => {
      if (hardwareCameraDeferredResponse === res) {
-         console.log('[TIMEOUT] ESP32 Camera request timed out after 45s');
+         console.log('[TIMEOUT] ESP32 Camera request timed out after 25s');
          hardwareCameraDeferredResponse.status(504).json({ error: "ESP32 Camera did not respond in time." });
          hardwareCameraDeferredResponse = null;
      }
-  }, 45000); 
+  }, 25000); 
 });
 
 // POST /api/pi/audio-input — Pi sends WAV/audio bytes → transcribe → classify → respond
@@ -1840,6 +1833,9 @@ function setupWebSocket(server) {
     let isCAM = false; 
     let partialSent = false;
     let partialTranscript = "";
+    let camImageBuffer = Buffer.alloc(0); // Buffer for incoming CAM image chunks
+    let camImageIsPreload = false;        // Whether the current image is a preload
+    let camImageExpecting = false;        // Whether we're expecting binary image chunks
     
     ws.on('message', async (message, isBinary) => {
 
@@ -1855,12 +1851,77 @@ function setupWebSocket(server) {
           return;
         }
 
+        // Handle CAM_IMAGE header — start of a WebSocket-based image transfer
+        if (isCAM && text.startsWith('{"type":"CAM_IMAGE"')) {
+          try {
+            const parsed = JSON.parse(text);
+            camImageIsPreload = parsed.preload === true;
+            camImageExpecting = true;
+            camImageBuffer = Buffer.alloc(0);
+            hardwareHealth.lastCamPoll = Date.now();
+            console.log(`[WS-CAM] Image transfer started (preload: ${camImageIsPreload})`);
+          } catch(e) {}
+          return;
+        }
+
+        // Handle CAM_IMAGE_END — all binary chunks received, process the image
+        if (isCAM && text.startsWith('{"type":"CAM_IMAGE_END"}')) {
+          camImageExpecting = false;
+          hardwareHealth.lastCamPoll = Date.now();
+          console.log(`[WS-CAM] Image transfer complete: ${camImageBuffer.length} bytes`);
+
+          if (camImageBuffer.length > 0) {
+            const imageData = `data:image/jpeg;base64,${camImageBuffer.toString('base64')}`;
+            
+            try {
+              latestFrame = camImageBuffer;
+            } catch(e) {}
+
+            if (camImageIsPreload) {
+              lastPreloadedImage = { data: imageData, timestamp: Date.now(), prompt: '' };
+              console.log(`[WS-CAM] Stored preloaded image (${imageData.length} chars)`);
+            } else {
+              // Process through vision pipeline
+              const fetch = require('node-fetch');
+              const prompt = hardwareCameraPrompt || '';
+              hardwareCameraPrompt = '';
+              hardwareCameraRequest = false;
+
+              try {
+                const visionResp = await fetch(`http://localhost:${PORT}/api/vision`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ image: imageData, prompt, source: 'pi', username: 'esp32' }),
+                });
+                const visionData = await visionResp.json();
+                const finalData = {
+                  description: visionData.description,
+                  source: 'pi',
+                  preloaded: false,
+                  captureAge: 0,
+                  image: visionData.image,
+                };
+
+                if (hardwareCameraDeferredResponse) {
+                  console.log(`[WS-CAM] Forwarding vision result to Web UI`);
+                  hardwareCameraDeferredResponse.json(finalData);
+                  hardwareCameraDeferredResponse = null;
+                }
+              } catch(err) {
+                console.error('[WS-CAM] Vision processing error:', err.message);
+              }
+            }
+          }
+          camImageBuffer = Buffer.alloc(0);
+          return;
+        }
+
         // Keep the dashboard health indicator alive for MIC connections
         if (!isCAM) {
           hardwareHealth.lastMicPoll = Date.now();
         } else {
           hardwareHealth.lastCamPoll = Date.now();
-          return; // CAM only sends identification, no other text messages
+          return; // CAM only sends identification/image messages, no other text
         }
 
         // ─── SENSOR TELEMETRY ───
@@ -2019,7 +2080,12 @@ function setupWebSocket(server) {
         }
       } else {
         if (isCAM) {
-          latestFrame = message; 
+          if (camImageExpecting) {
+            // Accumulate binary image chunks from WebSocket-based transfer
+            camImageBuffer = Buffer.concat([camImageBuffer, message]);
+          } else {
+            latestFrame = message;
+          }
         } else {
           // Fix 6: Halve upload size by converting to 8-bit PCM immediately
           const chunk8 = pcm16to8(message);
