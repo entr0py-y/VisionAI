@@ -97,12 +97,14 @@ void setup() {
   config.pixel_format = PIXFORMAT_JPEG;
 
   if (psramFound()) {
-    config.frame_size = FRAMESIZE_VGA;
-    config.jpeg_quality = 12;
+    Serial.println("[CAM] PSRAM found! Using high-res mode.");
+    config.frame_size = FRAMESIZE_VGA;     // 640x480 — reliable with PSRAM
+    config.jpeg_quality = 8;               // High quality for QR readability
     config.fb_count = 1;
   } else {
-    config.frame_size = FRAMESIZE_SVGA;
-    config.jpeg_quality = 12;
+    Serial.println("[CAM] No PSRAM. Using low-res mode.");
+    config.frame_size = FRAMESIZE_QVGA;    // 320x240 — safe for no-PSRAM
+    config.jpeg_quality = 10;
     config.fb_count = 1;
   }
 
@@ -112,6 +114,14 @@ void setup() {
     if (s) {
       s->set_vflip(s, 1);
       s->set_hmirror(s, 1);
+      // Sharper images for QR/text reading
+      s->set_sharpness(s, 2);              // Increase edge sharpness (-2 to 2)
+      s->set_contrast(s, 1);               // Slight contrast boost (-2 to 2)
+      s->set_whitebal(s, 1);               // Auto white balance ON
+      s->set_awb_gain(s, 1);               // AWB gain ON
+      s->set_exposure_ctrl(s, 1);          // Auto exposure ON
+      s->set_aec2(s, 1);                   // Advanced auto exposure ON
+      s->set_gain_ctrl(s, 1);              // Auto gain ON
     }
   } else {
     Serial.printf("[CAM] Camera init failed: 0x%x\n", err);
@@ -151,6 +161,9 @@ void captureAndSendImage(bool isPreload) {
   camera_fb_t *fb = esp_camera_fb_get();
   if (!fb) {
     Serial.println("[CAM] Capture failed!");
+    if (wsConnected) {
+      webSocket.sendTXT("{\"type\":\"CAM_ERROR\",\"message\":\"Capture failed, check hardware\"}");
+    }
     return;
   }
 

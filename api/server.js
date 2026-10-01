@@ -1851,6 +1851,17 @@ function setupWebSocket(server) {
           return;
         }
 
+        // Handle CAM_ERROR — camera hardware failed on the ESP32
+        if (isCAM && text.startsWith('{"type":"CAM_ERROR"')) {
+          hardwareHealth.lastCamPoll = Date.now();
+          console.log(`[WS-CAM] Hardware capture failed on ESP32`);
+          if (hardwareCameraDeferredResponse) {
+             hardwareCameraDeferredResponse.status(500).json({ error: "ESP32 Camera hardware failed to capture." });
+             hardwareCameraDeferredResponse = null;
+          }
+          return;
+        }
+
         // Handle CAM_IMAGE header — start of a WebSocket-based image transfer
         if (isCAM && text.startsWith('{"type":"CAM_IMAGE"')) {
           try {
