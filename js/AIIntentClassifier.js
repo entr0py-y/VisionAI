@@ -38,6 +38,9 @@ const AIIntentClassifier = (() => {
     /(?:use|open|start|activate)\s+(?:the\s+)?(?:camera|vision|webcam)/i,
     /(?:what\s+(?:color|colour)|describe\s+(?:my\s+)?surroundings?|tell\s+me\s+what\s+you\s+see)/i,
     /detect\s+(?:objects?|people|obstacles?|text|signs?)/i,
+    /qr\s*code/i,
+    /read\s+.*in\s+front/i,
+    /in\s+front\s+of\s+me/i
   ];
 
   /* ── LOCATION_INFO: user asking about their own position ── */

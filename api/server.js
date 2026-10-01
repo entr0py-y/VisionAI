@@ -881,8 +881,8 @@ app.post('/api/ai/classify', async (req, res) => {
       return res.json({ intent: 'LOCATION_INFO', destination: null, source: 'pattern' });
     }
 
-    // Single-word vision commands
-    if (/^(see|look|vision|scan|describe|camera)$/i.test(lower)) {
+    // Obvious vision commands
+    if (/^(see|look|vision|scan|describe|camera)$/i.test(lower) || lower.includes('in front') || lower.includes('qr code') || lower.includes('read the qr')) {
       return res.json({ intent: 'VISION', destination: null, source: 'pattern' });
     }
 
