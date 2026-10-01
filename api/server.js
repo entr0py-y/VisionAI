@@ -7,6 +7,8 @@ const OpenAI   = require('openai');
 const path     = require('path');
 const multer   = require('multer');
 const { safeInsert } = require('../lib/supabaseClient.cjs');
+const jsQR = require('jsqr');
+const { createCanvas, loadImage } = require('canvas');
 
 const app    = express();
 const PORT   = process.env.PORT || 3000;
@@ -1096,9 +1098,41 @@ SENSOR DATA:
     if (image) {
       // Normalise base64: ensure it is a full data-URL
       const base64 = image.startsWith('data:') ? image : `data:image/jpeg;base64,${image}`;
+      let qrCodeText = null;
 
       try {
           console.log('[Vision] Sending image to Groq vision model...');
+          
+          // PRE-PROCESSING: If user mentions "QR", try to decode it locally first!
+          if (userPrompt && userPrompt.toLowerCase().includes('qr')) {
+            try {
+              console.log('[Vision] Checking image for QR code using jsQR...');
+              const img = await loadImage(base64);
+              const canvas = createCanvas(img.width, img.height);
+              const ctx = canvas.getContext('2d');
+              ctx.drawImage(img, 0, 0, img.width, img.height);
+              const imageData = ctx.getImageData(0, 0, img.width, img.height);
+              
+              const code = jsQR(imageData.data, imageData.width, imageData.height, {
+                inversionAttempts: "dontInvert",
+              });
+              
+              if (code) {
+                console.log('[Vision] QR Code successfully decoded:', code.data);
+                qrCodeText = code.data;
+              } else {
+                console.log('[Vision] No QR code found by jsQR.');
+              }
+            } catch (qrErr) {
+              console.warn('[Vision] QR decode error:', qrErr.message);
+            }
+          }
+
+          // Inject QR data into the prompt if found
+          let finalPrompt = userInstruction;
+          if (qrCodeText) {
+             finalPrompt = `SYSTEM NOTE: A QR code was successfully scanned in this image. Its content is: "${qrCodeText}". \n\n${userInstruction}`;
+          }
           
           const providedKeys = (req.headers['x-ai-keys'] || '').split(',');
           const userGroqKey = providedKeys.find(k => k.trim().startsWith('gsk_'))?.trim();
@@ -1119,7 +1153,7 @@ SENSOR DATA:
               {
                 role: 'user',
                 content: [
-                  { type: 'text', text: visionSystemPrompt + '\n\n' + userInstruction },
+                  { type: 'text', text: visionSystemPrompt + '\n\n' + finalPrompt },
                   { type: 'image_url', image_url: { url: base64 } },
                 ],
               },
