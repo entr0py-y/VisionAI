@@ -1175,7 +1175,17 @@ SENSOR DATA:
             content: description
           }).catch(err => console.error('Supabase vision insert error:', err));
           
-          return res.json({ description, model: 'qwen-3.8-27b-vision', image: base64 });
+          let qrUrl = null;
+          if (qrCodeText) {
+            let t = qrCodeText.trim();
+            if (/^https?:\/\/[^\s]+$/.test(t)) {
+              qrUrl = t;
+            } else if (/^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?:\/[^\s]*)?$/.test(t)) {
+              qrUrl = 'https://' + t;
+            }
+          }
+
+          return res.json({ description, model: 'qwen-3.8-27b-vision', image: base64, qrUrl });
         }
       } catch (visionErr) {
         console.error('[Vision] Groq Vision Model failed:', visionErr.status, visionErr.message);
@@ -1282,7 +1292,7 @@ app.post('/api/pi/trigger-hardware-camera', (req, res) => {
     })
     .then(r => r.json())
     .then(visionData => {
-      res.json({ description: visionData.description, source: 'pi', preloaded: true, captureAge: preloadAge, image: visionData.image });
+      res.json({ description: visionData.description, source: 'pi', preloaded: true, captureAge: preloadAge, image: visionData.image, qrUrl: visionData.qrUrl || null });
     })
     .catch(err => {
       console.error('[Pre-warm] Vision processing failed:', err.message);
@@ -1945,6 +1955,7 @@ function setupWebSocket(server) {
                   preloaded: false,
                   captureAge: 0,
                   image: visionData.image,
+                  qrUrl: visionData.qrUrl || null,
                 };
 
                 if (hardwareCameraDeferredResponse) {
