@@ -9,7 +9,7 @@
 const char* ssid = "Heisenberg69";
 const char* password = "11111111";
 
-const char* serverIp = "visionaid-5ut9.onrender.com";
+const char* serverIp = "visionaiapp.onrender.com";
 const int serverPort = 443;
 
 // I2S MIC PINS (INMP441)

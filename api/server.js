@@ -802,6 +802,20 @@ app.post('/api/ai/chat', async (req, res) => {
           stream: true,
         });
 
+        // If client requests JSON or non-streaming (e.g. mobile Retrofit)
+        if (req.headers.accept?.includes('application/json') || req.body.stream === false) {
+          const completion = await p.client.chat.completions.create({
+            model: p.model,
+            messages,
+            temperature: 0.5,
+            max_tokens: 512,
+            stream: false,
+          });
+          const text = completion.choices?.[0]?.message?.content || "I'm ready! How can I assist you today?";
+          safeInsert('messages', { role: 'assistant', content: text, type: 'chat', username: username || "unknown" }).catch(() => {});
+          return res.json({ response: text, model: p.model, source: p.name });
+        }
+
         if (!res.headersSent) {
           res.setHeader('Content-Type', 'text/plain; charset=utf-8');
           res.setHeader('Transfer-Encoding', 'chunked');
@@ -1301,6 +1315,14 @@ app.post('/api/pi/trigger-hardware-camera', (req, res) => {
     lastPreloadedImage = { data: null, timestamp: 0, prompt: '' };
     hardwareCameraPrompt = '';
     return;
+  }
+
+  // Fast fail if ESP32 camera is offline to avoid 25s freeze
+  const camIsConnected = wsCAM && wsCAM.readyState === 1;
+  const camRecentPoll = (Date.now() - hardwareHealth.lastCamPoll) < 15000;
+  if (!camIsConnected && !camRecentPoll) {
+    console.log('[API] ESP32 Camera is offline, rejecting trigger immediately.');
+    return res.status(503).json({ error: "ESP32 Camera is offline. Please use phone camera.", camOnline: false });
   }
 
   // Store the deferred response — will be resolved when WebSocket image processing completes

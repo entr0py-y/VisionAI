@@ -13,7 +13,7 @@ const char *ssid = "Heisenberg69";
 const char *password = "11111111";
 
 // Cloud Server Configuration
-const char *serverIp = "visionaid-5ut9.onrender.com";
+const char *serverIp = "visionaiapp.onrender.com";
 const int serverPort = 443;
 
 // ==============================================================================
