@@ -62,7 +62,7 @@ unsigned long lastWiFiCheck = 0;
 unsigned long lastMicPing = 0;
 
 // Global audio buffers to prevent heap fragmentation
-#define AUDIO_BUFFER_SAMPLES 512
+#define AUDIO_BUFFER_SAMPLES 256
 uint8_t pcm32Buffer[AUDIO_BUFFER_SAMPLES * 4]; 
 int16_t pcm16Buffer[AUDIO_BUFFER_SAMPLES];
 
@@ -406,26 +406,57 @@ void loop() {
 
   // ─── REAL-TIME AUDIO STREAMING ───
   if (isRecording) {
+    static int32_t dcOffset = 0;
+    static int32_t peakLevel = 1000;  // AGC peak tracker
+
     size_t bytesRead = 0;
     esp_err_t result = i2s_read(I2S_PORT, pcm32Buffer, sizeof(pcm32Buffer), &bytesRead, 100 / portTICK_PERIOD_MS);
 
     if (result == ESP_OK && bytesRead > 0) {
-      int samplesRead = bytesRead / 4; 
+      int samplesRead = bytesRead / 4;
       int32_t* ptr32 = (int32_t*)pcm32Buffer;
-      const int NOISE_GATE_THRESHOLD = 200; 
+      const int NOISE_GATE_THRESHOLD = 50;
+      int32_t maxSample = 0;
 
-      for(int i = 0; i < samplesRead; i++) {
-        int32_t sample = ptr32[i] >> 15; 
+      for (int i = 0; i < samplesRead; i++) {
+        // Correct bit-shift: INMP441 is 24-bit left-justified in 32-bit
+        int32_t sample = ptr32[i] >> 14;
+
+        // High-pass DC offset removal
+        dcOffset += (sample - dcOffset) / 256;
+        sample -= dcOffset;
+
+        // Track peak for AGC
+        int32_t absSample = abs(sample);
+        if (absSample > maxSample) maxSample = absSample;
+
+        // Apply AGC gain
+        int32_t gain = 16000 / max(peakLevel, (int32_t)1);
+        if (gain < 1) gain = 1;
+        if (gain > 20) gain = 20;
+        sample = sample * gain;
+
+        // Clamp to 16-bit range
         if (sample > 32767) sample = 32767;
         else if (sample < -32768) sample = -32768;
-        
+
         int16_t sample16 = (int16_t)sample;
+
+        // Noise gate (reduced threshold)
         if (abs(sample16) < NOISE_GATE_THRESHOLD) {
-            sample16 = 0;
+          sample16 = 0;
         }
         pcm16Buffer[i] = sample16;
       }
-      
+
+      // Update AGC peak with exponential decay
+      if (maxSample > peakLevel) {
+        peakLevel = maxSample;  // Fast attack
+      } else {
+        peakLevel = peakLevel - (peakLevel / 500);  // Slow decay
+        if (peakLevel < 500) peakLevel = 500;  // Floor to prevent division issues
+      }
+
       int bytesToSend = samplesRead * 2;
       webSocket.sendBIN((uint8_t*)pcm16Buffer, bytesToSend);
     }
