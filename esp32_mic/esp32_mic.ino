@@ -304,16 +304,8 @@ void setup() {
   i2s_set_pin(I2S_PORT, &pin_config);
   i2s_zero_dma_buffer(I2S_PORT);
 
-  // Universal button polarity auto-calibration
-  pinMode(TOUCH_PIN, INPUT_PULLDOWN);
-  delay(50);
-  restingButtonState = digitalRead(TOUCH_PIN);
-  if (restingButtonState == HIGH) {
-    pinMode(TOUCH_PIN, INPUT_PULLUP);
-    delay(20);
-    restingButtonState = digitalRead(TOUCH_PIN);
-  }
-  Serial.printf("[PTT] Button calibrated. Resting state = %d\n", restingButtonState);
+  // TTP223 Touch Module Input (Untouched = LOW, Touched = HIGH)
+  pinMode(TOUCH_PIN, INPUT);
 
   pinMode(PIR_PIN, INPUT);          
   pinMode(ULTRASONIC_TRIG, OUTPUT);
@@ -381,20 +373,17 @@ void loop() {
     }
   }
 
-  // ─── PUSH-TO-TALK DEBOUNCED LOGIC (UNIVERSAL POLARITY) ───
-  bool rawReading = digitalRead(TOUCH_PIN);
-  if (rawReading != lastButtonReading) {
-    lastDebounceTime = millis();
-  }
+  // ─── TTP223 TOUCH SENSOR LOGIC ───
+  bool rawReading = (digitalRead(TOUCH_PIN) == HIGH);
 
-  if ((millis() - lastDebounceTime) > DEBOUNCE_DELAY) {
-    bool currentPressed = (rawReading != restingButtonState);
-    if (currentPressed != isButtonPressed) {
-      isButtonPressed = currentPressed;
+  if (rawReading != isButtonPressed) {
+    if ((millis() - lastDebounceTime) > 30) {
+      isButtonPressed = rawReading;
+      lastDebounceTime = millis();
       
       if (isButtonPressed) {
-        // BUTTON PRESSED - START
-        Serial.println("[PTT] Button PRESSED! Sending START...");
+        // TOUCH DETECTED
+        Serial.println("[PTT] TTP223 TOUCH DETECTED! Sending START...");
         ledOn();
         if (wsConnected) {
           webSocket.sendTXT("START");
@@ -404,8 +393,8 @@ void loop() {
           Serial.println("[ERR] WS not connected, cannot stream.");
         }
       } else {
-        // BUTTON RELEASED - STOP
-        Serial.println("[PTT] Button RELEASED! Sending STOP...");
+        // TOUCH RELEASED
+        Serial.println("[PTT] TTP223 RELEASED! Sending STOP...");
         ledOff();
         if (isRecording) {
           webSocket.sendTXT("STOP");
@@ -414,7 +403,6 @@ void loop() {
       }
     }
   }
-  lastButtonReading = rawReading;
 
   // ─── REAL-TIME AUDIO STREAMING ───
   if (isRecording) {
@@ -424,10 +412,10 @@ void loop() {
     if (result == ESP_OK && bytesRead > 0) {
       int samplesRead = bytesRead / 4; 
       int32_t* ptr32 = (int32_t*)pcm32Buffer;
-      const int NOISE_GATE_THRESHOLD = 200; 
+      const int NOISE_GATE_THRESHOLD = 30; 
 
       for(int i = 0; i < samplesRead; i++) {
-        int32_t sample = ptr32[i] >> 15; 
+        int32_t sample = (ptr32[i] >> 14) * 4; 
         if (sample > 32767) sample = 32767;
         else if (sample < -32768) sample = -32768;
         
