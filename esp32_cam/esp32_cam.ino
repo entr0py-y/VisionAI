@@ -269,7 +269,7 @@ void loop() {
     return;
   }
 
-  if (wsConnected && (millis() - lastCamPing > 5000)) {
+  if (wsConnected && (millis() - lastCamPing > 3000)) {
     webSocket.sendTXT("{\"type\":\"ESP32_CAM\"}");
     lastCamPing = millis();
   }

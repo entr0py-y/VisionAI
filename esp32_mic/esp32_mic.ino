@@ -49,15 +49,17 @@ WebSocketsClient webSocket;
 bool wsConnected = false;
 bool isRecording = false;
 
-// Debouncing variables
-bool buttonState = LOW;
-bool lastButtonState = LOW;
+// Debouncing & auto-polarity variables
+bool restingButtonState = LOW;
+bool isButtonPressed = false;
+bool lastButtonReading = LOW;
 unsigned long lastDebounceTime = 0;
 const unsigned long DEBOUNCE_DELAY = 50;
 
 unsigned long lastSensorSend = 0;
 unsigned long lastHeapLog = 0;
 unsigned long lastWiFiCheck = 0;
+unsigned long lastMicPing = 0;
 
 // Global audio buffers to prevent heap fragmentation
 #define AUDIO_BUFFER_SAMPLES 512
@@ -143,6 +145,7 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
     case WStype_CONNECTED:
       Serial.printf("[WS] Connected to %s\n", payload);
       wsConnected = true;
+      webSocket.sendTXT("{\"type\":\"ESP32_MIC\"}");
       ledBlink(3, 100);
       break;
     case WStype_TEXT:
@@ -301,7 +304,17 @@ void setup() {
   i2s_set_pin(I2S_PORT, &pin_config);
   i2s_zero_dma_buffer(I2S_PORT);
 
+  // Universal button polarity auto-calibration
   pinMode(TOUCH_PIN, INPUT_PULLDOWN);
+  delay(50);
+  restingButtonState = digitalRead(TOUCH_PIN);
+  if (restingButtonState == HIGH) {
+    pinMode(TOUCH_PIN, INPUT_PULLUP);
+    delay(20);
+    restingButtonState = digitalRead(TOUCH_PIN);
+  }
+  Serial.printf("[PTT] Button calibrated. Resting state = %d\n", restingButtonState);
+
   pinMode(PIR_PIN, INPUT);          
   pinMode(ULTRASONIC_TRIG, OUTPUT);
   pinMode(ULTRASONIC_ECHO, INPUT); 
@@ -329,6 +342,12 @@ void loop() {
       lastWiFiCheck = millis();
     }
     return;
+  }
+
+  // Periodic 3s Heartbeat Ping to keep "micOnline" solidly green in app
+  if (wsConnected && (millis() - lastMicPing >= 3000)) {
+    webSocket.sendTXT("{\"type\":\"MIC_PING\"}");
+    lastMicPing = millis();
   }
 
   // Periodic memory log
@@ -362,21 +381,22 @@ void loop() {
     }
   }
 
-  // ─── PUSH-TO-TALK DEBOUNCED LOGIC ───
-  bool reading = digitalRead(TOUCH_PIN);
-  if (reading != lastButtonState) {
+  // ─── PUSH-TO-TALK DEBOUNCED LOGIC (UNIVERSAL POLARITY) ───
+  bool rawReading = digitalRead(TOUCH_PIN);
+  if (rawReading != lastButtonReading) {
     lastDebounceTime = millis();
   }
 
   if ((millis() - lastDebounceTime) > DEBOUNCE_DELAY) {
-    if (reading != buttonState) {
-      buttonState = reading;
+    bool currentPressed = (rawReading != restingButtonState);
+    if (currentPressed != isButtonPressed) {
+      isButtonPressed = currentPressed;
       
-      if (buttonState == HIGH) {
+      if (isButtonPressed) {
         // BUTTON PRESSED - START
+        Serial.println("[PTT] Button PRESSED! Sending START...");
+        ledOn();
         if (wsConnected) {
-          Serial.println("[PTT] Button pressed! Starting...");
-          ledOn();
           webSocket.sendTXT("START");
           isRecording = true;
           i2s_zero_dma_buffer(I2S_PORT);
@@ -385,16 +405,16 @@ void loop() {
         }
       } else {
         // BUTTON RELEASED - STOP
+        Serial.println("[PTT] Button RELEASED! Sending STOP...");
+        ledOff();
         if (isRecording) {
-          Serial.println("[PTT] Released! Stopping...");
-          ledOff();
           webSocket.sendTXT("STOP");
           isRecording = false;
         }
       }
     }
   }
-  lastButtonState = reading;
+  lastButtonReading = rawReading;
 
   // ─── REAL-TIME AUDIO STREAMING ───
   if (isRecording) {
