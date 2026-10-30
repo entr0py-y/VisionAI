@@ -412,10 +412,10 @@ void loop() {
     if (result == ESP_OK && bytesRead > 0) {
       int samplesRead = bytesRead / 4; 
       int32_t* ptr32 = (int32_t*)pcm32Buffer;
-      const int NOISE_GATE_THRESHOLD = 30; 
+      const int NOISE_GATE_THRESHOLD = 200; 
 
       for(int i = 0; i < samplesRead; i++) {
-        int32_t sample = (ptr32[i] >> 14) * 4; 
+        int32_t sample = ptr32[i] >> 15; 
         if (sample > 32767) sample = 32767;
         else if (sample < -32768) sample = -32768;
         
