@@ -501,15 +501,13 @@ function cleanBaseURL(url, defaultUrl) {
   return url.trim().replace(/\/chat\/completions\/?$/, '').replace(/\/completions\/?$/, '').replace(/\/$/, '') || defaultUrl;
 }
 
-const openrouterKey = (process.env.OPENROUTER_API_KEY || '').trim().replace(/^["']|["']$/g, '');
-const nvidiaKey     = (process.env.NVIDIA_API_KEY || process.env.VISION_API_KEY || '').trim().replace(/^["']|["']$/g, '');
-const groqKey       = (process.env.GROQ_API_KEY || '').trim().replace(/^["']|["']$/g, '');
-const openaiKey     = (process.env.OPENAI_API_KEY || '').trim().replace(/^["']|["']$/g, '');
+const groqKey   = (process.env.GROQ_API_KEY || '').trim().replace(/^["']|["']$/g, '');
+const nvidiaKey = (process.env.NVIDIA_API_KEY || process.env.VISION_API_KEY || '').trim().replace(/^["']|["']$/g, '');
+const openaiKey = (process.env.OPENAI_API_KEY || '').trim().replace(/^["']|["']$/g, '');
 
-console.log(`[AI Startup] OpenRouter Key: ${openrouterKey ? `Found (${openrouterKey.slice(0, 8)}...)` : 'NOT SET'}`);
-console.log(`[AI Startup] NVIDIA Key:     ${nvidiaKey ? `Found (${nvidiaKey.slice(0, 7)}...)` : 'NOT SET'}`);
-console.log(`[AI Startup] Groq Key:       ${groqKey ? `Found (${groqKey.slice(0, 6)}...)` : 'NOT SET'}`);
-console.log(`[AI Startup] OpenAI Key:     ${openaiKey ? `Found (${openaiKey.slice(0, 5)}...)` : 'NOT SET'}`);
+console.log(`[AI Startup] Groq Key:   ${groqKey ? `Found (${groqKey.slice(0, 6)}...)` : 'NOT SET'}`);
+console.log(`[AI Startup] NVIDIA Key: ${nvidiaKey ? `Found (${nvidiaKey.slice(0, 7)}...)` : 'NOT SET'}`);
+console.log(`[AI Startup] OpenAI Key: ${openaiKey ? `Found (${openaiKey.slice(0, 5)}...)` : 'NOT SET'}`);
 
 let cachedProviders = null;
 
@@ -517,9 +515,8 @@ function getActiveProviders() {
   if (cachedProviders) return cachedProviders;
   const list = [];
 
-  // Check all available keys and match to their official endpoints (OpenRouter prioritized)
+  // Check all available keys and match to their official endpoints (Groq prioritized)
   const allKeys = [
-    { key: openrouterKey, nameHint: 'OpenRouter' },
     { key: groqKey, nameHint: 'Groq' },
     { key: nvidiaKey, nameHint: 'NVIDIA' },
     { key: openaiKey, nameHint: 'OpenAI' },
@@ -527,20 +524,7 @@ function getActiveProviders() {
 
   for (const item of allKeys) {
     const k = item.key;
-    if (k.startsWith('sk-or-') || item.nameHint === 'OpenRouter') {
-      list.push({
-        name: 'OpenRouter',
-        client: getOrCreateClient(
-          k,
-          cleanBaseURL(process.env.OPENROUTER_BASE_URL, 'https://openrouter.ai/api/v1'),
-          {
-            'HTTP-Referer': 'https://visionai.local',
-            'X-Title': 'VisionAI Wearable',
-          }
-        ),
-        model: process.env.OPENROUTER_CHAT_MODEL || 'nvidia/nemotron-3-ultra-550b-a55b',
-      });
-    } else if (k.startsWith('gsk_')) {
+    if (k.startsWith('gsk_') || item.nameHint === 'Groq') {
       list.push({
         name: 'Groq',
         client: getOrCreateClient(
@@ -572,20 +556,6 @@ function getActiveProviders() {
 
   // Fallback if no prefix matched
   if (list.length === 0) {
-    if (openrouterKey) {
-      list.push({
-        name: 'OpenRouter-Generic',
-        client: getOrCreateClient(
-          openrouterKey,
-          'https://openrouter.ai/api/v1',
-          {
-            'HTTP-Referer': 'https://visionai.local',
-            'X-Title': 'VisionAI Wearable',
-          }
-        ),
-        model: process.env.OPENROUTER_CHAT_MODEL || 'nvidia/nemotron-3-ultra-550b-a55b',
-      });
-    }
     if (groqKey) {
       list.push({
         name: 'Groq-Generic',
@@ -1219,89 +1189,38 @@ SENSOR DATA:
           }
           
           const providedKeys = (req.headers['x-ai-keys'] || '').split(',');
-          const userOpenRouterKey = providedKeys.find(k => k.trim().startsWith('sk-or-'))?.trim();
-          const finalOpenRouterKey = userOpenRouterKey || openrouterKey;
-
           const userGroqKey = providedKeys.find(k => k.trim().startsWith('gsk_'))?.trim();
           const finalGroqKey = userGroqKey || groqKey;
 
-          if (!finalOpenRouterKey && !finalGroqKey) {
-            return res.status(401).json({ error: 'Unauthorized', description: 'OpenRouter or Groq API Key is missing. Please add it in Settings.' });
+          if (!finalGroqKey) {
+            return res.status(401).json({ error: 'Unauthorized', description: 'Groq API Key is missing. Please add it in Settings.' });
           }
 
-          let description = null;
-          let modelUsed = '';
+          console.log('[Vision] Sending image to Groq vision model (qwen/qwen3.8-27b)...');
+          const groqVisionClient = getOrCreateClient(
+            finalGroqKey,
+            cleanBaseURL(process.env.GROQ_BASE_URL, 'https://api.groq.com/openai/v1')
+          );
 
-          // 1. Try OpenRouter Vision first if OpenRouter key is configured
-          if (finalOpenRouterKey) {
-            try {
-              const openRouterVisionModel = process.env.OPENROUTER_VISION_MODEL || 'nvidia/nemotron-3.5-super-vl';
-              console.log(`[Vision] Sending image to OpenRouter vision model (${openRouterVisionModel})...`);
-              const openrouterVisionClient = getOrCreateClient(
-                finalOpenRouterKey,
-                cleanBaseURL(process.env.OPENROUTER_BASE_URL, 'https://openrouter.ai/api/v1'),
-                {
-                  'HTTP-Referer': 'https://visionai.local',
-                  'X-Title': 'VisionAI Wearable',
-                }
-              );
-
-              const primaryVisionResp = await openrouterVisionClient.chat.completions.create({
-                model: openRouterVisionModel,
-                messages: [
-                  {
-                    role: 'user',
-                    content: [
-                      { type: 'text', text: visionSystemPrompt + '\n\n' + finalPrompt },
-                      { type: 'image_url', image_url: { url: base64 } },
-                    ],
-                  },
+          const primaryVisionResp = await groqVisionClient.chat.completions.create({
+            model: 'qwen/qwen3.8-27b',
+            messages: [
+              {
+                role: 'user',
+                content: [
+                  { type: 'text', text: visionSystemPrompt + '\n\n' + finalPrompt },
+                  { type: 'image_url', image_url: { url: base64 } },
                 ],
-                temperature: 0.2,
-                max_tokens: 100,
-                stream: false,
-              });
+              },
+            ],
+            temperature: 0.2,
+            max_tokens: 150,
+            stream: false,
+          });
 
-              description = primaryVisionResp.choices?.[0]?.message?.content?.trim();
-              if (description) {
-                modelUsed = openRouterVisionModel;
-                console.log(`[Vision] OpenRouter (${openRouterVisionModel}) response received:`, description?.slice(0, 80));
-              }
-            } catch (orErr) {
-              console.warn('[Vision] OpenRouter Vision failed, falling back to Groq if key available:', orErr.message);
-            }
-          }
-
-          // 2. Fallback to Groq vision if OpenRouter did not produce a description
-          if (!description && finalGroqKey) {
-            console.log('[Vision] Sending image to Groq vision model...');
-            const groqVisionClient = getOrCreateClient(
-              finalGroqKey,
-              cleanBaseURL(process.env.GROQ_BASE_URL, 'https://api.groq.com/openai/v1')
-            );
-
-            const primaryVisionResp = await groqVisionClient.chat.completions.create({
-              model: 'qwen/qwen3.8-27b',
-              messages: [
-                {
-                  role: 'user',
-                  content: [
-                    { type: 'text', text: visionSystemPrompt + '\n\n' + finalPrompt },
-                    { type: 'image_url', image_url: { url: base64 } },
-                  ],
-                },
-              ],
-              temperature: 0.2,
-              max_tokens: 100,
-              stream: false,
-            });
-
-            description = primaryVisionResp.choices?.[0]?.message?.content?.trim();
-            if (description) {
-              modelUsed = 'qwen/qwen3.8-27b';
-              console.log('[Vision] Groq response received:', description?.slice(0, 80));
-            }
-          }
+          const description = primaryVisionResp.choices?.[0]?.message?.content?.trim();
+          console.log('[Vision] Groq Model response received:', description?.slice(0, 80));
+          const modelUsed = 'qwen/qwen3.8-27b';
 
         if (description) {
           // Store vision result in Supabase
@@ -1605,15 +1524,11 @@ app.post('/api/pi/audio-input', emitHardwareStart, express.raw({ type: 'applicat
       
       const httpSensorCtx = buildSensorContext();
       const httpProviders = getActiveProviders();
-      const httpChatClient = httpProviders.length > 0 ? httpProviders[0].client : (openrouterKey ? getOrCreateClient(
-        openrouterKey,
-        'https://openrouter.ai/api/v1',
-        { 'HTTP-Referer': 'https://visionai.local', 'X-Title': 'VisionAI Wearable' }
-      ) : getOrCreateClient(
+      const httpChatClient = httpProviders.length > 0 ? httpProviders[0].client : getOrCreateClient(
         process.env.GROQ_API_KEY || HARDCODED_KEY,
         'https://api.groq.com/openai/v1'
-      ));
-      const httpChatModel = httpProviders.length > 0 ? httpProviders[0].model : (openrouterKey ? (process.env.OPENROUTER_CHAT_MODEL || 'nvidia/nemotron-3-ultra-550b-a55b') : 'openai/gpt-oss-20b');
+      );
+      const httpChatModel = httpProviders.length > 0 ? httpProviders[0].model : 'openai/gpt-oss-20b';
       const chatPromise = httpChatClient.chat.completions.create({
         model: httpChatModel,
         messages: [
@@ -2248,15 +2163,11 @@ function setupWebSocket(server) {
 
             try {
               const wsProviders = getActiveProviders();
-              const wsChatClient = wsProviders.length > 0 ? wsProviders[0].client : (openrouterKey ? getOrCreateClient(
-                openrouterKey,
-                'https://openrouter.ai/api/v1',
-                { 'HTTP-Referer': 'https://visionai.local', 'X-Title': 'VisionAI Wearable' }
-              ) : getOrCreateClient(
+              const wsChatClient = wsProviders.length > 0 ? wsProviders[0].client : getOrCreateClient(
                 process.env.GROQ_API_KEY || HARDCODED_KEY,
                 'https://api.groq.com/openai/v1'
-              ));
-              const wsChatModel = wsProviders.length > 0 ? wsProviders[0].model : (openrouterKey ? (process.env.OPENROUTER_CHAT_MODEL || 'nvidia/nemotron-3-ultra-550b-a55b') : 'openai/gpt-oss-20b');
+              );
+              const wsChatModel = wsProviders.length > 0 ? wsProviders[0].model : 'openai/gpt-oss-20b';
 
               const spatialContext = buildSensorContext();
               const modeNote = lastSensorMode === 'ALERT' ? '\n⚠️ SENSOR MODE: HIGH ALERT.' : '';
