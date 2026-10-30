@@ -5,6 +5,8 @@
 #include <Preferences.h>
 #include <WebServer.h>
 #include <DNSServer.h>
+#include "soc/soc.h"
+#include "soc/rtc_cntl_reg.h"
 
 // ===========================
 // CONFIGURATION & PREFERENCES
@@ -241,6 +243,7 @@ void startConfigPortal() {
 }
 
 void setup() {
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); // Disable brownout detector
   Serial.begin(115200);
   Serial.println("\nStarting ESP32 Mic + Sensors...");
 
