@@ -6,9 +6,45 @@ const cors     = require('cors');
 const OpenAI   = require('openai');
 const path     = require('path');
 const multer   = require('multer');
+const https    = require('https');
+const http     = require('http');
+const fetch    = require('node-fetch');
+const FormData = require('form-data');
 const { safeInsert } = require('../lib/supabaseClient.cjs');
 const jsQR = require('jsqr');
 const { createCanvas, loadImage } = require('canvas');
+
+// ─── High-Performance Network Agents (TCP/TLS Connection Pooling) ─────────────
+const httpsKeepAliveAgent = new https.Agent({
+  keepAlive: true,
+  maxSockets: 64,
+  maxFreeSockets: 16,
+  timeout: 60000,
+});
+const httpKeepAliveAgent = new http.Agent({
+  keepAlive: true,
+  maxSockets: 64,
+  maxFreeSockets: 16,
+  timeout: 60000,
+});
+
+// Cache for OpenAI SDK instances to reuse connections across requests
+const clientCache = new Map();
+function getOrCreateClient(apiKey, baseURL, defaultHeaders = null) {
+  const cacheKey = `${baseURL}:${apiKey}`;
+  if (clientCache.has(cacheKey)) return clientCache.get(cacheKey);
+
+  const config = {
+    baseURL,
+    apiKey,
+    httpAgent: httpsKeepAliveAgent,
+  };
+  if (defaultHeaders) config.defaultHeaders = defaultHeaders;
+
+  const client = new OpenAI(config);
+  clientCache.set(cacheKey, client);
+  return client;
+}
 
 const app    = express();
 const PORT   = process.env.PORT || 3000;
@@ -475,7 +511,10 @@ console.log(`[AI Startup] NVIDIA Key:     ${nvidiaKey ? `Found (${nvidiaKey.slic
 console.log(`[AI Startup] Groq Key:       ${groqKey ? `Found (${groqKey.slice(0, 6)}...)` : 'NOT SET'}`);
 console.log(`[AI Startup] OpenAI Key:     ${openaiKey ? `Found (${openaiKey.slice(0, 5)}...)` : 'NOT SET'}`);
 
+let cachedProviders = null;
+
 function getActiveProviders() {
+  if (cachedProviders) return cachedProviders;
   const list = [];
 
   // Check all available keys and match to their official endpoints (OpenRouter prioritized)
@@ -491,41 +530,41 @@ function getActiveProviders() {
     if (k.startsWith('sk-or-') || item.nameHint === 'OpenRouter') {
       list.push({
         name: 'OpenRouter',
-        client: new OpenAI({
-          baseURL: cleanBaseURL(process.env.OPENROUTER_BASE_URL, 'https://openrouter.ai/api/v1'),
-          apiKey: k,
-          defaultHeaders: {
+        client: getOrCreateClient(
+          k,
+          cleanBaseURL(process.env.OPENROUTER_BASE_URL, 'https://openrouter.ai/api/v1'),
+          {
             'HTTP-Referer': 'https://visionai.local',
             'X-Title': 'VisionAI Wearable',
-          },
-        }),
+          }
+        ),
         model: process.env.OPENROUTER_CHAT_MODEL || 'nvidia/nemotron-3-ultra-550b-a55b',
       });
     } else if (k.startsWith('gsk_')) {
       list.push({
         name: 'Groq',
-        client: new OpenAI({
-          baseURL: cleanBaseURL(process.env.GROQ_BASE_URL, 'https://api.groq.com/openai/v1'),
-          apiKey: k,
-        }),
+        client: getOrCreateClient(
+          k,
+          cleanBaseURL(process.env.GROQ_BASE_URL, 'https://api.groq.com/openai/v1')
+        ),
         model: process.env.GROQ_CHAT_MODEL || 'openai/gpt-oss-20b',
       });
     } else if (k.startsWith('nvapi-')) {
       list.push({
         name: 'NVIDIA',
-        client: new OpenAI({
-          baseURL: cleanBaseURL(process.env.NVIDIA_BASE_URL, 'https://integrate.api.nvidia.com/v1'),
-          apiKey: k,
-        }),
+        client: getOrCreateClient(
+          k,
+          cleanBaseURL(process.env.NVIDIA_BASE_URL, 'https://integrate.api.nvidia.com/v1')
+        ),
         model: process.env.NVIDIA_CHAT_MODEL || 'nvidia/llama-3.1-nemotron-51b-instruct',
       });
     } else if (k.startsWith('sk-')) {
       list.push({
         name: 'OpenAI',
-        client: new OpenAI({
-          baseURL: cleanBaseURL(process.env.OPENAI_BASE_URL, 'https://api.openai.com/v1'),
-          apiKey: k,
-        }),
+        client: getOrCreateClient(
+          k,
+          cleanBaseURL(process.env.OPENAI_BASE_URL, 'https://api.openai.com/v1')
+        ),
         model: process.env.OPENAI_CHAT_MODEL || 'gpt-4o-mini',
       });
     }
@@ -536,39 +575,40 @@ function getActiveProviders() {
     if (openrouterKey) {
       list.push({
         name: 'OpenRouter-Generic',
-        client: new OpenAI({
-          baseURL: 'https://openrouter.ai/api/v1',
-          apiKey: openrouterKey,
-          defaultHeaders: {
+        client: getOrCreateClient(
+          openrouterKey,
+          'https://openrouter.ai/api/v1',
+          {
             'HTTP-Referer': 'https://visionai.local',
             'X-Title': 'VisionAI Wearable',
-          },
-        }),
+          }
+        ),
         model: process.env.OPENROUTER_CHAT_MODEL || 'nvidia/nemotron-3-ultra-550b-a55b',
       });
     }
     if (groqKey) {
       list.push({
         name: 'Groq-Generic',
-        client: new OpenAI({
-          baseURL: 'https://api.groq.com/openai/v1',
-          apiKey: groqKey,
-        }),
+        client: getOrCreateClient(
+          groqKey,
+          'https://api.groq.com/openai/v1'
+        ),
         model: 'openai/gpt-oss-20b',
       });
     }
     if (nvidiaKey) {
       list.push({
         name: 'NVIDIA-Generic',
-        client: new OpenAI({
-          baseURL: 'https://integrate.api.nvidia.com/v1',
-          apiKey: nvidiaKey,
-        }),
+        client: getOrCreateClient(
+          nvidiaKey,
+          'https://integrate.api.nvidia.com/v1'
+        ),
         model: 'nvidia/llama-3.1-nemotron-51b-instruct',
       });
     }
   }
 
+  cachedProviders = list;
   return list;
 }
 
@@ -1197,14 +1237,14 @@ SENSOR DATA:
             try {
               const openRouterVisionModel = process.env.OPENROUTER_VISION_MODEL || 'nvidia/nemotron-3.5-super-vl';
               console.log(`[Vision] Sending image to OpenRouter vision model (${openRouterVisionModel})...`);
-              const openrouterVisionClient = new OpenAI({
-                baseURL: cleanBaseURL(process.env.OPENROUTER_BASE_URL, 'https://openrouter.ai/api/v1'),
-                apiKey: finalOpenRouterKey,
-                defaultHeaders: {
+              const openrouterVisionClient = getOrCreateClient(
+                finalOpenRouterKey,
+                cleanBaseURL(process.env.OPENROUTER_BASE_URL, 'https://openrouter.ai/api/v1'),
+                {
                   'HTTP-Referer': 'https://visionai.local',
                   'X-Title': 'VisionAI Wearable',
-                },
-              });
+                }
+              );
 
               const primaryVisionResp = await openrouterVisionClient.chat.completions.create({
                 model: openRouterVisionModel,
@@ -1218,7 +1258,7 @@ SENSOR DATA:
                   },
                 ],
                 temperature: 0.2,
-                max_tokens: 150,
+                max_tokens: 100,
                 stream: false,
               });
 
@@ -1235,10 +1275,10 @@ SENSOR DATA:
           // 2. Fallback to Groq vision if OpenRouter did not produce a description
           if (!description && finalGroqKey) {
             console.log('[Vision] Sending image to Groq vision model...');
-            const groqVisionClient = new OpenAI({
-              baseURL: 'https://api.groq.com/openai/v1',
-              apiKey: finalGroqKey
-            });
+            const groqVisionClient = getOrCreateClient(
+              finalGroqKey,
+              cleanBaseURL(process.env.GROQ_BASE_URL, 'https://api.groq.com/openai/v1')
+            );
 
             const primaryVisionResp = await groqVisionClient.chat.completions.create({
               model: 'qwen/qwen3.8-27b',
@@ -1252,7 +1292,7 @@ SENSOR DATA:
                 },
               ],
               temperature: 0.2,
-              max_tokens: 150,
+              max_tokens: 100,
               stream: false,
             });
 
@@ -1347,7 +1387,6 @@ app.get('/api/history', async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════════
 app.post('/api/navigation/geocode', async (req, res) => {
   try {
-    const fetch = require('node-fetch');
     const { query, lat, lng } = req.body;
     if (!query) return res.status(400).json({ error: 'query required' });
 
@@ -1360,6 +1399,7 @@ app.post('/api/navigation/geocode', async (req, res) => {
 
     const r = await fetch(`https://nominatim.openstreetmap.org/search?${params}`, {
       headers: { 'User-Agent': 'VisionAID-Navigation/1.0' },
+      agent: httpsKeepAliveAgent,
     });
     const results = await r.json();
     if (!results || results.length === 0) return res.status(404).json({ error: 'not found' });
@@ -1489,10 +1529,7 @@ app.post('/api/pi/audio-input', emitHardwareStart, express.raw({ type: 'applicat
     let transcript = "";
     
     try {
-      console.log(`[DEBUG] Attempting STT via Groq Whisper...`);
-      
-      const FormData = require('form-data');
-      const fetch = require('node-fetch');
+      console.log(`[DEBUG] Attempting STT via Groq Whisper (pooled connection)...`);
       
       const form = new FormData();
       form.append('file', wavBuffer, {
@@ -1508,7 +1545,8 @@ app.post('/api/pi/audio-input', emitHardwareStart, express.raw({ type: 'applicat
           'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
           ...form.getHeaders()
         },
-        body: form
+        body: form,
+        agent: httpsKeepAliveAgent,
       });
 
       if (!response.ok) {
@@ -1521,7 +1559,8 @@ app.post('/api/pi/audio-input', emitHardwareStart, express.raw({ type: 'applicat
         const fallbackResp = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${process.env.GROQ_API_KEY}`, ...fallbackForm.getHeaders() },
-          body: fallbackForm
+          body: fallbackForm,
+          agent: httpsKeepAliveAgent,
         });
         if (fallbackResp.ok) {
           const fbData = await fallbackResp.json();
@@ -1558,7 +1597,7 @@ app.post('/api/pi/audio-input', emitHardwareStart, express.raw({ type: 'applicat
     let aiResponse = "";
     
     try {
-      console.log(`[DEBUG] Running AI Reasoning via Llama...`);
+      console.log(`[DEBUG] Running AI Reasoning...`);
       const now = new Date();
       // Adjust to IST as that seems to be the user's timezone from the logs
       const timeStr = now.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
@@ -1566,14 +1605,14 @@ app.post('/api/pi/audio-input', emitHardwareStart, express.raw({ type: 'applicat
       
       const httpSensorCtx = buildSensorContext();
       const httpProviders = getActiveProviders();
-      const httpChatClient = httpProviders.length > 0 ? httpProviders[0].client : (openrouterKey ? new OpenAI({
-        baseURL: 'https://openrouter.ai/api/v1',
-        apiKey: openrouterKey,
-        defaultHeaders: { 'HTTP-Referer': 'https://visionai.local', 'X-Title': 'VisionAI Wearable' },
-      }) : new OpenAI({
-        baseURL: 'https://api.groq.com/openai/v1',
-        apiKey: process.env.GROQ_API_KEY || HARDCODED_KEY,
-      }));
+      const httpChatClient = httpProviders.length > 0 ? httpProviders[0].client : (openrouterKey ? getOrCreateClient(
+        openrouterKey,
+        'https://openrouter.ai/api/v1',
+        { 'HTTP-Referer': 'https://visionai.local', 'X-Title': 'VisionAI Wearable' }
+      ) : getOrCreateClient(
+        process.env.GROQ_API_KEY || HARDCODED_KEY,
+        'https://api.groq.com/openai/v1'
+      ));
       const httpChatModel = httpProviders.length > 0 ? httpProviders[0].model : (openrouterKey ? (process.env.OPENROUTER_CHAT_MODEL || 'nvidia/nemotron-3-ultra-550b-a55b') : 'openai/gpt-oss-20b');
       const chatPromise = httpChatClient.chat.completions.create({
         model: httpChatModel,
@@ -1581,8 +1620,8 @@ app.post('/api/pi/audio-input', emitHardwareStart, express.raw({ type: 'applicat
           { role: 'system', content: VISION_PERSONA + `\n\nThe current time is ${timeStr}, ${dateStr}. Respond concisely (under 30 words). The user might call you 'Jenny' or other names — just respond helpfully. Current sensor readings:\n` + httpSensorCtx },
           { role: 'user', content: transcript }
         ],
-        temperature: 0.7,
-        max_tokens: 50,
+        temperature: 0.6,
+        max_tokens: 40,
       });
 
       const chatCompletion = await Promise.race([
@@ -1649,7 +1688,6 @@ app.post('/api/pi/image-input', upload.single('image'), async (req, res) => {
   const isPreload = req.query.preload === 'true'; // OPTIMIZED: Pre-warm capture detection
   console.log(`\n[HARDWARE] 📷 Image received from ESP/Pi! IP: ${req.ip} Data size: ${req.file ? req.file.size : 'base64'} bytes (preload: ${isPreload})`);
   try {
-    const fetch = require('node-fetch');
     let imageData = req.body.image; // JSON base64
 
     // If multipart file upload
@@ -1681,6 +1719,7 @@ app.post('/api/pi/image-input', upload.single('image'), async (req, res) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ image: imageData, prompt, source: 'pi', username: req.body.username || 'unknown' }),
+      agent: httpKeepAliveAgent,
     });
     const visionData = await visionResp.json();
     
@@ -2048,7 +2087,6 @@ function setupWebSocket(server) {
               console.log(`[WS-CAM] Stored preloaded image (${imageData.length} chars)`);
             } else {
               // Process through vision pipeline
-              const fetch = require('node-fetch');
               const prompt = hardwareCameraPrompt || '';
               hardwareCameraPrompt = '';
               hardwareCameraRequest = false;
@@ -2058,6 +2096,7 @@ function setupWebSocket(server) {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ image: imageData, prompt, source: 'pi', username: 'esp32' }),
+                  agent: httpKeepAliveAgent,
                 });
                 const visionData = await visionResp.json();
                 const finalData = {
@@ -2175,8 +2214,6 @@ function setupWebSocket(server) {
 
               const wavBuffer = Buffer.concat([wavHeader, trimmed]);
               
-              const FormData = require('form-data');
-              const fetch = require('node-fetch');
               const form = new FormData();
               form.append('file', wavBuffer, { filename: 'audio.wav', contentType: 'audio/wav' });
               form.append('model', 'whisper-large-v3-turbo'); 
@@ -2185,7 +2222,8 @@ function setupWebSocket(server) {
               const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${process.env.GROQ_API_KEY}`, ...form.getHeaders() },
-                body: form
+                body: form,
+                agent: httpsKeepAliveAgent,
               });
 
               if (response.ok) {
@@ -2210,14 +2248,14 @@ function setupWebSocket(server) {
 
             try {
               const wsProviders = getActiveProviders();
-              const wsChatClient = wsProviders.length > 0 ? wsProviders[0].client : (openrouterKey ? new OpenAI({
-                baseURL: 'https://openrouter.ai/api/v1',
-                apiKey: openrouterKey,
-                defaultHeaders: { 'HTTP-Referer': 'https://visionai.local', 'X-Title': 'VisionAI Wearable' },
-              }) : new OpenAI({
-                baseURL: 'https://api.groq.com/openai/v1',
-                apiKey: process.env.GROQ_API_KEY || HARDCODED_KEY,
-              }));
+              const wsChatClient = wsProviders.length > 0 ? wsProviders[0].client : (openrouterKey ? getOrCreateClient(
+                openrouterKey,
+                'https://openrouter.ai/api/v1',
+                { 'HTTP-Referer': 'https://visionai.local', 'X-Title': 'VisionAI Wearable' }
+              ) : getOrCreateClient(
+                process.env.GROQ_API_KEY || HARDCODED_KEY,
+                'https://api.groq.com/openai/v1'
+              ));
               const wsChatModel = wsProviders.length > 0 ? wsProviders[0].model : (openrouterKey ? (process.env.OPENROUTER_CHAT_MODEL || 'nvidia/nemotron-3-ultra-550b-a55b') : 'openai/gpt-oss-20b');
 
               const spatialContext = buildSensorContext();
@@ -2227,17 +2265,55 @@ function setupWebSocket(server) {
               
               const systemPrompt = VISION_PERSONA + `\n\nThe current time is ${timeStr}. VOICE interaction — under 30 words.\n` + spatialContext + modeNote;
 
-              const chatCompletion = await wsChatClient.chat.completions.create({
+              // OPTIMIZED: Stream tokens from LLM for ultra-low latency & early sentence TTS
+              const stream = await wsChatClient.chat.completions.create({
                 model: wsChatModel,
                 messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: transcript }],
-                temperature: 0.7,
-                max_tokens: 50,
+                temperature: 0.6,
+                max_tokens: 40,
+                stream: true,
               });
-              
-              const aiResponse = chatCompletion.choices[0].message.content.trim();
+
+              let aiResponse = "";
+              let currentSentence = "";
+
+              for await (const chunk of stream) {
+                const token = chunk.choices?.[0]?.delta?.content || "";
+                if (token) {
+                  aiResponse += token;
+                  currentSentence += token;
+
+                  // 1. Real-time token streaming for UI
+                  const chunkData = { chunk: token, transcript };
+                  streamClients.forEach(client => {
+                    client.write(`data: {"event": "AUDIO_CHUNK", "data": ${JSON.stringify(chunkData)}}\n\n`);
+                  });
+
+                  // 2. Sentence boundary detection for instant TTS dispatch
+                  if (/[.!?;\n]/.test(token) && currentSentence.trim().length > 15) {
+                    const sentenceToEmit = currentSentence.trim();
+                    currentSentence = "";
+                    const sentenceData = { sentence: sentenceToEmit, transcript };
+                    streamClients.forEach(client => {
+                      client.write(`data: {"event": "AUDIO_SENTENCE", "data": ${JSON.stringify(sentenceData)}}\n\n`);
+                    });
+                  }
+                }
+              }
+
+              // Emit any remaining tail sentence
+              if (currentSentence.trim().length > 0) {
+                const sentenceData = { sentence: currentSentence.trim(), transcript };
+                streamClients.forEach(client => {
+                  client.write(`data: {"event": "AUDIO_SENTENCE", "data": ${JSON.stringify(sentenceData)}}\n\n`);
+                });
+              }
+
+              aiResponse = aiResponse.trim();
               console.log(`[WS] AI: ${aiResponse}`);
               safeInsert('messages', { role: 'assistant', content: aiResponse, type: 'voice', username: "hardware_user" }).catch(() => {});
               
+              // 3. Final aggregated response for legacy / non-streaming listeners
               const finalData = { text: aiResponse, transcript: transcript };
               streamClients.forEach(client => {
                 client.write(`data: {"event": "AUDIO_RESULT", "data": ${JSON.stringify(finalData)}}\n\n`);
@@ -2267,7 +2343,7 @@ function setupWebSocket(server) {
             partialSent = true;
             console.log('[WS] Speculative transcription started (1.5s mark)...');
             
-            // Dispatch in background
+            // Dispatch in background with pooled connection
             (async () => {
               try {
                 const dataSize = audioBuffer.length;
@@ -2287,8 +2363,6 @@ function setupWebSocket(server) {
                 wavHeader.writeUInt32LE(dataSize, 40);
 
                 const wavBuffer = Buffer.concat([wavHeader, audioBuffer]);
-                const FormData = require('form-data');
-                const fetch = require('node-fetch');
                 const form = new FormData();
                 form.append('file', wavBuffer, { filename: 'audio.wav', contentType: 'audio/wav' });
                 form.append('model', 'whisper-large-v3-turbo');
@@ -2297,7 +2371,8 @@ function setupWebSocket(server) {
                 const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
                   method: 'POST',
                   headers: { 'Authorization': `Bearer ${process.env.GROQ_API_KEY}`, ...form.getHeaders() },
-                  body: form
+                  body: form,
+                  agent: httpsKeepAliveAgent,
                 });
 
                 if (response.ok) {
