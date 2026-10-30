@@ -312,8 +312,13 @@ void setup() {
   pinMode(ULTRASONIC_TRIG, OUTPUT);
   pinMode(ULTRASONIC_ECHO, INPUT); 
 
-  // Connect directly to local Android Phone Hub (No SSL on local network -> ultra-low latency & zero RAM bloat)
-  webSocket.begin(serverIp, serverPort, "/");
+  // Connect directly to local Android Phone Hub (Dynamically discovers phone hotspot gateway)
+  IPAddress targetHub = WiFi.gatewayIP();
+  if (targetHub == IPAddress(0, 0, 0, 0)) {
+    targetHub.fromString(serverIp);
+  }
+  Serial.printf("[WS] Connecting to Android Gateway: %s:%d\n", targetHub.toString().c_str(), serverPort);
+  webSocket.begin(targetHub, serverPort, "/");
   webSocket.onEvent(webSocketEvent);
   webSocket.setReconnectInterval(2000);
 }
