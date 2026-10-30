@@ -898,7 +898,7 @@ app.post('/api/ai/classify', async (req, res) => {
     }
 
     // Obvious vision commands
-    if (/^(see|look|vision|scan|describe|camera)$/i.test(lower) || lower.includes('in front') || lower.includes('qr code') || lower.includes('read the qr')) {
+    if (/^(see|look|vision|scan|describe|camera)$/i.test(lower) || lower.includes('in front') || lower.includes('infront') || lower.includes('qr code') || lower.includes('read the qr') || lower.includes('who is') || lower.includes("who's") || lower.includes('who standing')) {
       return res.json({ intent: 'VISION', destination: null, source: 'pattern' });
     }
 
