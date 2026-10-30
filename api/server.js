@@ -1358,11 +1358,19 @@ const emitHardwareStart = (req, res, next) => {
   next();
 };
 
+let lastAudioInputTime = 0;
+
 app.post('/api/pi/audio-input', emitHardwareStart, express.raw({ type: 'application/octet-stream', limit: '50mb' }), async (req, res) => {
   hardwareRecordingRequest = false;
+  const nowReq = Date.now();
+  if (nowReq - lastAudioInputTime < 800) {
+    console.log('[AUDIO] Rate-limited: rapid audio-input dropped');
+    return res.status(429).json({ error: "Too many audio requests" });
+  }
+  lastAudioInputTime = nowReq;
+
   console.log(`\n[HARDWARE] 🎙️ Audio/Text request received from ESP/Pi! IP: ${req.ip}`);
 
-  
   try {
     let audioBuffer;
 
@@ -1374,8 +1382,10 @@ app.post('/api/pi/audio-input', emitHardwareStart, express.raw({ type: 'applicat
       return res.status(400).json({ error: 'Audio must be application/octet-stream' });
     }
 
-    if (!audioBuffer || audioBuffer.length === 0) {
-      return res.status(400).json({ error: 'Empty audio buffer' });
+    // Require at least 8000 bytes (~250ms of 16kHz PCM) to prevent noise/micro-tap spamming Groq
+    if (!audioBuffer || audioBuffer.length < 8000) {
+      console.log(`[AUDIO] Audio buffer too short (${audioBuffer ? audioBuffer.length : 0} bytes < 8000), ignoring.`);
+      return res.json({ message: "Audio too short", text: "", transcript: "" });
     }
 
     // STEP 2: CONVERT PCM → WAV (16kHz, mono, 16-bit)
@@ -1427,7 +1437,11 @@ app.post('/api/pi/audio-input', emitHardwareStart, express.raw({ type: 'applicat
       });
 
       if (!response.ok) {
-        // OPTIMIZED: Fallback to distil-whisper if turbo fails
+        if (response.status === 429) {
+          console.warn('[STT] Groq returned 429 Rate Limit. Skipping fallback to avoid rate limit spam.');
+          throw new Error('Groq 429 Rate Limit');
+        }
+        // Fallback to distil-whisper if turbo fails
         console.warn('[STT] whisper-turbo failed, retrying with distil-whisper-large-v3-en...');
         const fallbackForm = new FormData();
         fallbackForm.append('file', wavBuffer, { filename: 'audio.wav', contentType: 'audio/wav' });
@@ -1460,6 +1474,12 @@ app.post('/api/pi/audio-input', emitHardwareStart, express.raw({ type: 'applicat
 
     console.log(`[DEBUG] Transcript: ${transcript}`);
     
+    // Stop early if no meaningful transcript was returned (prevents wasting Groq LLM calls)
+    if (!transcript || transcript === "Empty transcription received" || transcript === "Error reading audio" || transcript.trim().length === 0) {
+      console.log(`[DEBUG] No valid speech recognized. Skipping LLM call.`);
+      return res.json({ message: "No speech recognized", text: "", transcript: "" });
+    }
+
     // 💾 SAVE USER VOICE TRANSCRIPT TO DATABASE
     try {
       safeInsert('messages', { 

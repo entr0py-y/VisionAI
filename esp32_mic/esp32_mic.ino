@@ -51,12 +51,14 @@ WebSocketsClient webSocket;
 bool wsConnected = false;
 bool isRecording = false;
 
-// Debouncing & auto-polarity variables
+// Debouncing & anti-spam cooldown variables
 bool restingButtonState = LOW;
 bool isButtonPressed = false;
 bool lastButtonReading = LOW;
 unsigned long lastDebounceTime = 0;
-const unsigned long DEBOUNCE_DELAY = 50;
+const unsigned long DEBOUNCE_DELAY = 80;
+unsigned long recordingStartTime = 0;
+unsigned long lastRecordingStopTime = 0;
 
 unsigned long lastSensorSend = 0;
 unsigned long lastHeapLog = 0;
@@ -318,7 +320,8 @@ void setup() {
   i2s_zero_dma_buffer(I2S_PORT);
 
   // TTP223 Touch Module Input (Untouched = LOW, Touched = HIGH)
-  pinMode(TOUCH_PIN, INPUT);
+  // Firm pull-down to eliminate floating pin oscillation
+  pinMode(TOUCH_PIN, INPUT_PULLDOWN);
 
   pinMode(PIR_PIN, INPUT);          
   pinMode(ULTRASONIC_TRIG, OUTPUT);
@@ -388,31 +391,42 @@ void loop() {
     }
   }
 
-  // ─── TTP223 TOUCH SENSOR LOGIC ───
+  // ─── TTP223 TOUCH SENSOR LOGIC (Anti-Spam Filtered) ───
   bool rawReading = (digitalRead(TOUCH_PIN) == HIGH);
 
   if (rawReading != isButtonPressed) {
-    if ((millis() - lastDebounceTime) > 30) {
+    if ((millis() - lastDebounceTime) > DEBOUNCE_DELAY) {
       isButtonPressed = rawReading;
       lastDebounceTime = millis();
       
       if (isButtonPressed) {
-        // TOUCH DETECTED
-        Serial.println("[PTT] TTP223 TOUCH DETECTED! Sending START...");
-        ledOn();
-        if (wsConnected) {
-          webSocket.sendTXT("START");
-          isRecording = true;
-          i2s_zero_dma_buffer(I2S_PORT);
+        // Enforce at least 800ms cooldown between recordings to prevent rapid API spam
+        if (millis() - lastRecordingStopTime > 800) {
+          Serial.println("[PTT] TTP223 TOUCH DETECTED! Sending START...");
+          ledOn();
+          if (wsConnected) {
+            webSocket.sendTXT("START");
+            isRecording = true;
+            recordingStartTime = millis();
+            i2s_zero_dma_buffer(I2S_PORT);
+          } else {
+            Serial.println("[ERR] WS not connected, cannot stream.");
+          }
         } else {
-          Serial.println("[ERR] WS not connected, cannot stream.");
+          Serial.println("[PTT] Ignored touch — cooldown active");
         }
       } else {
         // TOUCH RELEASED
-        Serial.println("[PTT] TTP223 RELEASED! Sending STOP...");
         ledOff();
         if (isRecording) {
-          webSocket.sendTXT("STOP");
+          unsigned long duration = millis() - recordingStartTime;
+          if (duration >= 400) {
+            Serial.printf("[PTT] TTP223 RELEASED! Valid duration %lums. Sending STOP...\n", duration);
+            webSocket.sendTXT("STOP");
+            lastRecordingStopTime = millis();
+          } else {
+            Serial.printf("[PTT] Micro-tap ignored (%lums < 400ms). Discarding noise.\n", duration);
+          }
           isRecording = false;
         }
       }
