@@ -21,8 +21,9 @@ bool inConfigPortal = false;
 const char* default_ssid = "Heisenberg69";
 const char* default_password = "11111111";
 
-const char* serverIp = "visionaiapp.onrender.com";
-const int serverPort = 443;
+// Android Local Device Hub Configuration (Phone Hotspot Gateway)
+const char* serverIp = "192.168.43.1";
+const int serverPort = 8888;
 
 // ==============================================================================
 // ESP32-S3 PIN DEFINITIONS
@@ -311,9 +312,10 @@ void setup() {
   pinMode(ULTRASONIC_TRIG, OUTPUT);
   pinMode(ULTRASONIC_ECHO, INPUT); 
 
-  webSocket.beginSSL(serverIp, serverPort, "/api/pi/ws");
+  // Connect directly to local Android Phone Hub (No SSL on local network -> ultra-low latency & zero RAM bloat)
+  webSocket.begin(serverIp, serverPort, "/");
   webSocket.onEvent(webSocketEvent);
-  webSocket.setReconnectInterval(5000);
+  webSocket.setReconnectInterval(2000);
 }
 
 void loop() {
