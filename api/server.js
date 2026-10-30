@@ -1536,9 +1536,11 @@ app.post('/api/pi/audio-input', emitHardwareStart, express.raw({ type: 'applicat
       });
     }
 
-    // STEP 5: RESPONSE (Send a simple 200 OK back to the ESP32 so it doesn't hang)
+    // STEP 5: RESPONSE (Send result back so phone receives text & transcript immediately)
     return res.json({
-      message: "Success"
+      message: "Success",
+      text: aiResponse,
+      transcript: transcript
     });
 
   } catch (error) {

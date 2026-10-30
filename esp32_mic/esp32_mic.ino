@@ -5,6 +5,8 @@
 #include <Preferences.h>
 #include <WebServer.h>
 #include <DNSServer.h>
+#include "soc/soc.h"
+#include "soc/rtc_cntl_reg.h"
 
 // ===========================
 // CONFIGURATION & PREFERENCES
@@ -21,8 +23,8 @@ bool inConfigPortal = false;
 const char* default_ssid = "Heisenberg69";
 const char* default_password = "11111111";
 
-const char* serverIp = "visionaiapp.onrender.com";
-const int serverPort = 443;
+// Local Phone Hub WebSocket Server Configuration
+const int serverPort = 8888;
 
 // ==============================================================================
 // ESP32-S3 PIN DEFINITIONS
@@ -239,7 +241,18 @@ void startConfigPortal() {
   configServer.begin();
 }
 
+// Permanently override and neutralize the ESP-IDF internal brownout detector
+extern "C" void esp_brownout_init(void) {
+  // Empty stub: prevents ESP-IDF from enabling hardware brownout ISR
+}
+
+// Run immediately before Arduino runtime initialization
+__attribute__((constructor)) void pre_init_bod_disable() {
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
+}
+
 void setup() {
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); // Disable brownout detector
   Serial.begin(115200);
   Serial.println("\nStarting ESP32 Mic + Sensors...");
 
@@ -311,7 +324,9 @@ void setup() {
   pinMode(ULTRASONIC_TRIG, OUTPUT);
   pinMode(ULTRASONIC_ECHO, INPUT); 
 
-  webSocket.beginSSL(serverIp, serverPort, "/api/pi/ws");
+  IPAddress targetHub = WiFi.gatewayIP();
+  Serial.printf("[MIC-WS] Connecting to Phone Hub at %s:%d\n", targetHub.toString().c_str(), serverPort);
+  webSocket.begin(targetHub, serverPort, "/");
   webSocket.onEvent(webSocketEvent);
   webSocket.setReconnectInterval(5000);
 }

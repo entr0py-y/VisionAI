@@ -24,9 +24,8 @@ bool inConfigPortal = false;
 const char *default_ssid = "Heisenberg69";
 const char *default_password = "11111111";
 
-// Cloud Server Configuration
-const char *serverIp = "visionaiapp.onrender.com";
-const int serverPort = 443;
+// Local Phone Hub WebSocket Server Configuration
+const int serverPort = 8888;
 
 // ==============================================================================
 // CAMERA PINS (AI-Thinker ESP32-CAM / ESP32 Dev Module)
@@ -244,7 +243,9 @@ void setup() {
     Serial.printf("[CAM] Camera init failed: 0x%x\n", err);
   }
 
-  webSocket.beginSSL(serverIp, serverPort, "/api/pi/ws");
+  IPAddress targetHub = WiFi.gatewayIP();
+  Serial.printf("[CAM-WS] Connecting to Phone Hub at %s:%d\n", targetHub.toString().c_str(), serverPort);
+  webSocket.begin(targetHub, serverPort, "/");
   webSocket.onEvent(webSocketEvent);
   webSocket.setReconnectInterval(5000);
 }
