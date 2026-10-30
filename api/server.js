@@ -34,11 +34,13 @@ function getOrCreateClient(apiKey, baseURL, defaultHeaders = null) {
   const cacheKey = `${baseURL}:${apiKey}`;
   if (clientCache.has(cacheKey)) return clientCache.get(cacheKey);
 
+  const isHTTPS = baseURL.startsWith('https');
   const config = {
     baseURL,
     apiKey,
-    httpAgent: httpsKeepAliveAgent,
+    httpAgent: isHTTPS ? undefined : httpKeepAliveAgent,
   };
+  if (isHTTPS) config.httpAgent = httpsKeepAliveAgent;
   if (defaultHeaders) config.defaultHeaders = defaultHeaders;
 
   const client = new OpenAI(config);
@@ -582,11 +584,7 @@ function getActiveProviders() {
   return list;
 }
 
-// Dedicated Vision Client
-const visionClient = new OpenAI({
-  baseURL: cleanBaseURL(process.env.VISION_BASE_URL, 'https://integrate.api.nvidia.com/v1'),
-  apiKey:  nvidiaKey || HARDCODED_KEY,
-});
+// Note: Vision requests now use Groq via getOrCreateClient() in the /api/vision route.
 
 // Log active providers at startup
 const startupProviders = getActiveProviders();
@@ -830,20 +828,16 @@ app.post('/api/ai/chat', async (req, res) => {
 
     const providers = getActiveProviders();
 
+    // Check if client wants JSON (e.g. mobile Retrofit) BEFORE starting any stream
+    const wantsJSON = req.headers.accept?.includes('application/json') || req.body.stream === false;
+
     for (const p of providers) {
       if (res.headersSent) break;
       try {
-        console.log(`[Chat] Streaming with ${p.name} (model: ${p.model})...`);
-        const stream = await p.client.chat.completions.create({
-          model: p.model,
-          messages,
-          temperature: 0.5,
-          max_tokens: 512,
-          stream: true,
-        });
+        console.log(`[Chat] ${wantsJSON ? 'Non-streaming' : 'Streaming'} with ${p.name} (model: ${p.model})...`);
 
-        // If client requests JSON or non-streaming (e.g. mobile Retrofit)
-        if (req.headers.accept?.includes('application/json') || req.body.stream === false) {
+        // Non-streaming path for mobile/JSON clients — single API call, no leaked stream
+        if (wantsJSON) {
           const completion = await p.client.chat.completions.create({
             model: p.model,
             messages,
@@ -855,6 +849,15 @@ app.post('/api/ai/chat', async (req, res) => {
           safeInsert('messages', { role: 'assistant', content: text, type: 'chat', username: username || "unknown" }).catch(() => {});
           return res.json({ response: text, model: p.model, source: p.name });
         }
+
+        // Streaming path for web clients
+        const stream = await p.client.chat.completions.create({
+          model: p.model,
+          messages,
+          temperature: 0.5,
+          max_tokens: 512,
+          stream: true,
+        });
 
         if (!res.headersSent) {
           res.setHeader('Content-Type', 'text/plain; charset=utf-8');
@@ -876,7 +879,7 @@ app.post('/api/ai/chat', async (req, res) => {
           safeInsert('messages', { role: 'assistant', content: fullAssistantResponse, type: 'chat', username: username || "unknown" }).catch(() => {});
         } catch(e) {}
 
-        return; // Successfully completed streaming!
+        return; // Successfully completed!
       } catch (providerErr) {
         console.warn(`[Chat] Provider ${p.name} failed:`, providerErr.status || providerErr.message);
       }
@@ -1251,10 +1254,19 @@ SENSOR DATA:
       }
     }
 
-    // ── Text-only fallback (no image or vision model unavailable) ──
-    const fallbackPrompt = userPrompt
-      ? `A visually impaired person asked: "${userPrompt}". Provide a helpful, descriptive response about what they might be encountering based on their question.`
-      : 'A visually impaired person wants you to describe their surroundings. Provide a general helpful response and ask them to try again.';
+    // ── Text-only fallback (no image provided) ──
+    if (userPrompt) {
+      // Actually use AI for text-only queries instead of returning a generic error
+      const fallbackPrompt = `A visually impaired person asked: "${userPrompt}". No camera image is available. Provide a helpful response based on their question. Keep it conversational and brief (2-3 sentences).`;
+      try {
+        const aiText = await aiComplete([{ role: 'system', content: visionSystemPrompt }, { role: 'user', content: fallbackPrompt }]);
+        if (aiText) {
+          return res.json({ description: aiText, model: 'text-fallback' });
+        }
+      } catch(e) {
+        console.warn('[Vision] Text-only AI fallback failed:', e.message);
+      }
+    }
 
     res.json({ description: 'I could not process the image. Please ensure your camera is not covered and try again.', model: 'error-fallback' });
 
@@ -1404,6 +1416,8 @@ const emitHardwareStart = (req, res, next) => {
 
 app.post('/api/pi/audio-input', emitHardwareStart, express.raw({ type: 'application/octet-stream', limit: '50mb' }), async (req, res) => {
   hardwareRecordingRequest = false;
+  // Extract username from query param since body is raw binary (not JSON)
+  const audioUsername = req.query.username || 'hardware_user';
   console.log(`\n[HARDWARE] 🎙️ Audio/Text request received from ESP/Pi! IP: ${req.ip}`);
 
   
@@ -1509,7 +1523,7 @@ app.post('/api/pi/audio-input', emitHardwareStart, express.raw({ type: 'applicat
         role: 'user', 
         content: transcript, 
         type: 'voice', 
-        username: req.body.username || "hardware_user" 
+        username: audioUsername 
       }).catch(() => {});
     } catch(e) {}
 
@@ -1558,7 +1572,7 @@ app.post('/api/pi/audio-input', emitHardwareStart, express.raw({ type: 'applicat
         role: 'assistant', 
         content: aiResponse, 
         type: 'voice', 
-        username: req.body.username || "hardware_user" 
+        username: audioUsername 
       }).catch(() => {});
     } catch(e) {}
 
@@ -1841,10 +1855,10 @@ app.get('/api/pi/listening-status', (req, res) => {
 app.post('/api/pi/trigger-hardware-mic', (req, res) => {
   console.log('[API] Hardware Mic Triggered. Waiting for PI POST...');
   
-  if (hardwareRecordingRequest) {
-    if (hardwareAudioDeferredResponse) {
-      hardwareAudioDeferredResponse.status(409).json({ error: 'Already waiting for an existing mic request.' });
-    }
+  if (hardwareRecordingRequest && hardwareAudioDeferredResponse) {
+    // Clear the old deferred response before overwriting to prevent orphaned connections
+    hardwareAudioDeferredResponse.status(409).json({ error: 'Already waiting for an existing mic request.' });
+    hardwareAudioDeferredResponse = null;
   }
 
   hardwareRecordingRequest = true;
@@ -2107,6 +2121,20 @@ function setupWebSocket(server) {
           // FIX 4: Final silence trim from end of recording
           const trimmed = trim8BitSilence(currentAudio);
           
+          // Guard: if entire recording was silence, use partial transcript or report empty
+          if (trimmed.length === 0) {
+            console.log('[WS] Audio was entirely silent after trimming');
+            if (partialTranscript) {
+              // We got a partial earlier — use that
+              handleTranscriptResponse(partialTranscript);
+            } else {
+              streamClients.forEach(client => {
+                client.write(`data: {"event": "AUDIO_RESULT", "data": {"text": "I didn't catch that. Could you speak a bit louder?", "transcript": ""}}\n\n`);
+              });
+            }
+            return;
+          }
+
           // FIX 2/3: Dispatch Groq request immediately
           const processFinalSTT = async () => {
             try {

@@ -391,13 +391,8 @@ Time: {TIMESTAMP}
       safeInsert('messages', { role: 'user', content: message, type: 'chat', username: username || 'unknown' }).catch(() => {});
     } catch(e) {}
 
-    // Validate API keys 
-    const _p1 = "nvapi-S_iKSD-";
-    const _p2 = "CJDP6_l9TeApwME";
-    const _p3 = "OCNWtz4OqsTA_lAURNJ";
-    const _p4 = "t8edt_dRjqd3pW6htAYnc7_";
-    const HARDCODED_KEY = _p1 + _p2 + _p3 + _p4;
-    const apiKey = process.env.AI_API_KEY || process.env.NVIDIA_API_KEY || process.env.OPENAI_API_KEY || HARDCODED_KEY;
+    // Validate API keys — prioritize Groq to match the main server's configuration
+    const apiKey = process.env.GROQ_API_KEY || process.env.AI_API_KEY || process.env.OPENAI_API_KEY;
     
     if (!apiKey) {
       console.error('Missing API key environment variable in Edge Runtime');
@@ -410,7 +405,9 @@ Time: {TIMESTAMP}
       });
     }
 
-    const aiEndpoint = process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1/chat/completions';
+    // Use Groq endpoint with the same model as the main Express server
+    const aiEndpoint = process.env.GROQ_BASE_URL || 'https://api.groq.com/openai/v1/chat/completions';
+    const chatModel = process.env.GROQ_CHAT_MODEL || 'openai/gpt-oss-20b';
 
     const response = await fetch(aiEndpoint, {
       method: 'POST',
@@ -419,7 +416,7 @@ Time: {TIMESTAMP}
         'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'deepseek-ai/deepseek-v4.1-flash',
+        model: chatModel,
         messages: messages,
         temperature: 0.7,
         max_tokens: 1024,
